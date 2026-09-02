@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -73,3 +73,27 @@ class PriceFeed:
             return None
 
         return stdev / math.sqrt(avg_dt)
+
+    def momentum(self, window_seconds: float) -> float | None:
+        """Fractional price change from the oldest sample at least
+        `window_seconds` old up to the latest sample. Returns None if we
+        don't yet have history reaching that far back. This is a separate,
+        currently-unused-by-the-formula signal -- logged for later analysis,
+        not blended into predict()."""
+        if len(self._samples) < 2:
+            return None
+
+        latest = self._samples[-1]
+        cutoff = latest.ts - timedelta(seconds=window_seconds)
+
+        reference = None
+        for sample in self._samples:
+            if sample.ts <= cutoff:
+                reference = sample
+            else:
+                break
+
+        if reference is None or reference.price <= 0:
+            return None
+
+        return (latest.price - reference.price) / reference.price

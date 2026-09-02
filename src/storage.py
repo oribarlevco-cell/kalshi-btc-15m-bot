@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from src.markets import MarketSnapshot
+from src.markets import MarketSnapshot, OrderbookSummary
 from src.predictor import Prediction
+
+
+def _parse_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -66,6 +73,44 @@ CREATE TABLE IF NOT EXISTS orders (
     average_fill_price REAL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_ticker ON orders(ticker);
+
+CREATE TABLE IF NOT EXISTS market_lifecycle (
+    ticker TEXT PRIMARY KEY,
+    event_ticker TEXT,
+    series_ticker TEXT,
+    floor_strike REAL,
+    close_time_utc TEXT,
+
+    opened_at_utc TEXT,
+    btc_price_at_open REAL,
+    initial_probability_yes REAL,
+    initial_confidence REAL,
+    initial_sample_count INTEGER,
+
+    closed_logged_at_utc TEXT,
+    actual_result TEXT,
+    settlement_value REAL,
+    final_yes_bid REAL,
+    final_yes_ask REAL,
+    final_no_bid REAL,
+    final_no_ask REAL,
+    final_last_price REAL,
+    final_btc_price REAL,
+    last_probability_yes REAL,
+    last_confidence REAL
+);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_result ON market_lifecycle(actual_result);
+
+CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    pulled_at_utc TEXT NOT NULL,
+    yes_levels_json TEXT,
+    no_levels_json TEXT,
+    yes_depth_total REAL,
+    no_depth_total REAL
+);
+CREATE INDEX IF NOT EXISTS idx_orderbook_ticker ON orderbook_snapshots(ticker);
 """
 
 
@@ -75,9 +120,21 @@ class Storage:
         self._conn = sqlite3.connect(db_path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        self._migrate()
 
     def close(self) -> None:
         self._conn.close()
+
+    def _migrate(self) -> None:
+        """CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing table, so
+        columns added to `predictions` after it first shipped need an
+        explicit, idempotent ALTER TABLE here. Existing rows get NULL for
+        the new columns -- nothing is lost."""
+        existing_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(predictions)").fetchall()}
+        for column, decl in (("sigma_per_sqrt_second", "REAL"), ("momentum_pct", "REAL")):
+            if column not in existing_cols:
+                self._conn.execute(f"ALTER TABLE predictions ADD COLUMN {column} {decl}")
+        self._conn.commit()
 
     def insert_snapshot(self, snapshot: MarketSnapshot) -> None:
         self._conn.execute(
@@ -133,9 +190,10 @@ class Storage:
         self._conn.execute(
             """
             INSERT INTO predictions (
-                ticker, computed_at_utc, btc_price, floor_strike, probability_yes, confidence, sample_count
+                ticker, computed_at_utc, btc_price, floor_strike, probability_yes, confidence, sample_count,
+                sigma_per_sqrt_second, momentum_pct
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prediction.ticker,
@@ -145,6 +203,8 @@ class Storage:
                 prediction.probability_yes,
                 prediction.confidence,
                 prediction.sample_count,
+                prediction.sigma_per_sqrt_second,
+                prediction.momentum_pct,
             ),
         )
         self._conn.commit()
@@ -171,6 +231,122 @@ class Storage:
                 record.get("rationale"),
                 record.get("fill_count"),
                 record.get("average_fill_price"),
+            ),
+        )
+        self._conn.commit()
+
+    def record_market_open(self, snapshot: MarketSnapshot, prediction: Prediction | None, series_ticker: str) -> None:
+        """Log the first time we see a market, idempotently. `prediction` may
+        be None if this is called before enough price samples exist yet --
+        in that case the initial_* columns are filled in later via
+        fill_initial_prediction_if_missing()."""
+        self._conn.execute(
+            """
+            INSERT INTO market_lifecycle (
+                ticker, event_ticker, series_ticker, floor_strike, close_time_utc,
+                opened_at_utc, btc_price_at_open, initial_probability_yes, initial_confidence, initial_sample_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ticker) DO NOTHING
+            """,
+            (
+                snapshot.ticker,
+                snapshot.event_ticker,
+                series_ticker,
+                snapshot.floor_strike,
+                snapshot.close_time.isoformat(),
+                datetime.now(timezone.utc).isoformat(),
+                prediction.btc_price if prediction else None,
+                prediction.probability_yes if prediction else None,
+                prediction.confidence if prediction else None,
+                prediction.sample_count if prediction else None,
+            ),
+        )
+        self._conn.commit()
+
+    def fill_initial_prediction_if_missing(self, ticker: str, prediction: Prediction) -> None:
+        self._conn.execute(
+            """
+            UPDATE market_lifecycle
+            SET btc_price_at_open = ?, initial_probability_yes = ?, initial_confidence = ?, initial_sample_count = ?
+            WHERE ticker = ? AND initial_probability_yes IS NULL
+            """,
+            (prediction.btc_price, prediction.probability_yes, prediction.confidence, prediction.sample_count, ticker),
+        )
+        self._conn.commit()
+
+    def finalize_market_lifecycle(self, payload: dict[str, Any], series_ticker: str) -> None:
+        """Write the close-side of a market's lifecycle row from Kalshi's
+        settled-market payload. Works even if record_market_open() was never
+        called for this ticker (e.g. the bot wasn't running --predict when it
+        opened) -- it just inserts a close-only row in that case."""
+        ticker = payload["ticker"]
+        settlement_value = _parse_float(payload.get("settlement_value_dollars"))
+        result = payload.get("result") or ("yes" if (settlement_value or 0) > 0 else "no")
+
+        latest = self._conn.execute(
+            "SELECT btc_price, probability_yes, confidence FROM predictions "
+            "WHERE ticker = ? ORDER BY computed_at_utc DESC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        final_btc_price, last_probability_yes, last_confidence = latest if latest else (None, None, None)
+
+        self._conn.execute(
+            """
+            INSERT INTO market_lifecycle (
+                ticker, event_ticker, series_ticker, floor_strike, close_time_utc,
+                closed_logged_at_utc, actual_result, settlement_value,
+                final_yes_bid, final_yes_ask, final_no_bid, final_no_ask, final_last_price,
+                final_btc_price, last_probability_yes, last_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET
+                closed_logged_at_utc=excluded.closed_logged_at_utc,
+                actual_result=excluded.actual_result,
+                settlement_value=excluded.settlement_value,
+                final_yes_bid=excluded.final_yes_bid,
+                final_yes_ask=excluded.final_yes_ask,
+                final_no_bid=excluded.final_no_bid,
+                final_no_ask=excluded.final_no_ask,
+                final_last_price=excluded.final_last_price,
+                final_btc_price=excluded.final_btc_price,
+                last_probability_yes=excluded.last_probability_yes,
+                last_confidence=excluded.last_confidence
+            """,
+            (
+                ticker,
+                payload.get("event_ticker", ""),
+                series_ticker,
+                payload.get("floor_strike"),
+                payload.get("close_time"),
+                datetime.now(timezone.utc).isoformat(),
+                result,
+                settlement_value,
+                _parse_float(payload.get("yes_bid_dollars")),
+                _parse_float(payload.get("yes_ask_dollars")),
+                _parse_float(payload.get("no_bid_dollars")),
+                _parse_float(payload.get("no_ask_dollars")),
+                _parse_float(payload.get("last_price_dollars")),
+                final_btc_price,
+                last_probability_yes,
+                last_confidence,
+            ),
+        )
+        self._conn.commit()
+
+    def insert_orderbook_snapshot(self, summary: OrderbookSummary) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO orderbook_snapshots (
+                ticker, pulled_at_utc, yes_levels_json, no_levels_json, yes_depth_total, no_depth_total
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                summary.ticker,
+                datetime.now(timezone.utc).isoformat(),
+                json.dumps(summary.yes_levels),
+                json.dumps(summary.no_levels),
+                summary.yes_depth_total,
+                summary.no_depth_total,
             ),
         )
         self._conn.commit()

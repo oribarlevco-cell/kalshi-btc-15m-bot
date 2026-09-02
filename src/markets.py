@@ -99,6 +99,32 @@ def get_orderbook(client: KalshiClient, ticker: str) -> dict[str, Any]:
     return client.get(f"/markets/{ticker}/orderbook")
 
 
+@dataclass
+class OrderbookSummary:
+    ticker: str
+    yes_levels: list[tuple[float, float]]
+    no_levels: list[tuple[float, float]]
+    yes_depth_total: float
+    no_depth_total: float
+
+
+def get_orderbook_summary(client: KalshiClient, ticker: str) -> OrderbookSummary:
+    """Resting bid levels beyond the top-of-book yes_bid/no_bid already on
+    MarketSnapshot -- Kalshi's orderbook response shape is
+    {"orderbook_fp": {"yes_dollars": [[price, size], ...], "no_dollars": [...]}}."""
+    payload = get_orderbook(client, ticker)
+    book = payload.get("orderbook_fp") or {}
+    yes_levels = [(float(price), float(size)) for price, size in (book.get("yes_dollars") or [])]
+    no_levels = [(float(price), float(size)) for price, size in (book.get("no_dollars") or [])]
+    return OrderbookSummary(
+        ticker=ticker,
+        yes_levels=yes_levels,
+        no_levels=no_levels,
+        yes_depth_total=sum(size for _, size in yes_levels),
+        no_depth_total=sum(size for _, size in no_levels),
+    )
+
+
 def get_settled_history(
     client: KalshiClient,
     series_ticker: str,

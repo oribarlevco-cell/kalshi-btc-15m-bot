@@ -27,13 +27,48 @@ order — see [Safety](#safety) below.
   **blocks on your explicit `y/N` confirmation** before ever calling
   `orders.place_order`.
 - `src/storage.py` — SQLite schema (`snapshots`, `settled_outcomes`,
-  `predictions`, `orders`) and read/write helpers.
+  `predictions`, `orders`, `market_lifecycle`, `orderbook_snapshots`) and
+  read/write helpers.
 - `src/poller.py` — the polling loop: discover → snapshot → store →
   summarize → (optional) `on_snapshot` hook, plus periodic backfill of
-  settled markets.
+  settled markets and periodic DB backups.
 - `src/summary.py` — formats a one-line summary of the current market.
 - `src/dashboard.py` — one-shot script that writes `docs/data.json` for the
   live dashboard (see below); reuses the same `predictor.py` logic as `--predict`.
+- `src/report_calibration.py` — compares predictions to actual outcomes (see
+  [Evaluating the model](#evaluating-the-model)).
+- `src/backup.py` — SQLite backups + CSV export (see [Backups](#backups)).
+
+## Evaluating the model
+
+Before ever considering real trading, `--predict`/`--trade` log a full
+lifecycle for every market into `market_lifecycle`: open-side (earliest
+prediction, BTC price at open, strike) and close-side (Kalshi's actual
+settled result, final quoted prices, the model's latest pre-close
+prediction) in one row per ticker. Orderbook depth beyond the top bid/ask,
+and two extra signals not yet fed into the prediction formula (realized
+volatility `sigma_per_sqrt_second`, and price momentum `momentum_pct`), are
+logged alongside every prediction for later analysis.
+
+```bash
+python -m src.report_calibration            # uses each market's latest pre-close prediction
+python -m src.report_calibration --which initial   # uses the earliest prediction instead
+```
+
+Prints a calibration table (of markets predicted ~70% YES, did ~70% actually
+resolve YES?), the overall Brier score (0 = perfect, 0.25 = no better than a
+coinflip), and directional accuracy. With little settled history yet, it
+just says so rather than erroring.
+
+## Backups
+
+`data/kalshi_btc15m.db` is local-only (see [Data safety](#data-safety)) and
+grows the only real record of this evaluation, so it's backed up
+automatically: `poller.run_forever` copies it (via SQLite's online backup
+API, safe against a live/writing connection) to `data/backups/` every
+`BACKUP_INTERVAL_HOURS` (default 24h), keeping the 10 most recent. Run it
+manually any time with `python -m src.backup` (add `--csv` to also export
+every table to CSV, `--keep N` to change retention).
 
 ## Live dashboard
 
@@ -115,9 +150,12 @@ credentials (see [Safety](#safety)).
 | `PRICE_FEED_URL` | no (default Coinbase BTC-USD ticker) | External BTC price source for predictions |
 | `MIN_SAMPLES_FOR_PREDICTION` | no (default `5`) | Minimum price samples before predicting |
 | `MIN_SIGNAL_CONFIDENCE` | no (default `0.15`) | Only propose a trade when `abs(P(yes)-0.5)*2` is at least this |
+| `MOMENTUM_WINDOW_SECONDS` | no (default `300`) | Lookback window for the (currently unused-by-the-formula) momentum signal |
 | `TRADING_ENABLED` | no (default `false`) | Must be `true`, **in addition to** `KALSHI_ENV=demo` and the `--trade` flag, for any order to ever be proposed |
 | `MAX_ORDER_COST_DOLLARS` | no (default `5.0`) | Caps the size of each proposed paper order |
 | `TRADE_WINDOW_MIN_SECONDS` / `TRADE_WINDOW_MAX_SECONDS` | no (default `60`/`780`) | Only propose trades when time remaining in the 15-min window falls in this range |
+| `BACKUP_DIR` | no (default `data/backups`) | Where periodic DB backups/CSV exports go |
+| `BACKUP_INTERVAL_HOURS` | no (default `24`) | How often `run_forever` backs up the DB |
 
 To create an API key/RSA keypair (needed for `--trade`, using your Kalshi
 **demo** account), see
@@ -145,6 +183,13 @@ Data lands in the SQLite file at `DB_PATH` (default
 `TRADING_ENABLED=true` in `.env` on top of the `--trade` flag itself, plus
 demo credentials — run without it and the bot tells you exactly which
 condition is missing instead of guessing what you meant.
+
+## Data safety
+
+`data/kalshi_btc15m.db` and everything under `data/backups/` are excluded
+via `.gitignore` (confirmed: `*.db` anywhere in the tree, plus an explicit
+`data/backups/` line for the CSV exports) — this history never gets pushed
+to GitHub. See [Backups](#backups) for how it's protected locally.
 
 ## Safety
 
@@ -176,5 +221,6 @@ ruff check .
 - Real BRTI data (vs. the Coinbase proxy used now) would need a CF
   Benchmarks license.
 - The prediction model is intentionally simple (driftless, single-feed
-  volatility estimate); a next step would be backtesting it against the
-  `settled_outcomes` table this bot already collects.
+  volatility estimate); `momentum_pct` and orderbook depth are logged but not
+  yet blended in — `report_calibration.py` is how to judge whether they, or
+  anything else, would actually help before changing the formula.

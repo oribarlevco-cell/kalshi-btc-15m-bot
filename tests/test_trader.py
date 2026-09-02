@@ -51,12 +51,24 @@ class FakeStorage:
     def __init__(self):
         self.predictions = []
         self.orders = []
+        self.opened_markets = []
+        self.filled_initial = []
+        self.orderbook_snapshots = []
 
     def insert_prediction(self, prediction):
         self.predictions.append(prediction)
 
     def insert_order(self, record):
         self.orders.append(record)
+
+    def record_market_open(self, snapshot, prediction, series_ticker):
+        self.opened_markets.append((snapshot.ticker, prediction, series_ticker))
+
+    def fill_initial_prediction_if_missing(self, ticker, prediction):
+        self.filled_initial.append((ticker, prediction))
+
+    def insert_orderbook_snapshot(self, summary):
+        self.orderbook_snapshots.append(summary)
 
 
 class FakeClient:
@@ -66,6 +78,8 @@ class FakeClient:
         self.post_calls = []
 
     def get(self, path, params=None):
+        if path.endswith("/orderbook"):
+            return {"orderbook_fp": {"yes_dollars": [["0.44", "33.73"]], "no_dollars": [["0.10", "5.00"]]}}
         if path == "/portfolio/balance":
             return {"balance_dollars": self._balance_dollars}
         if path == "/portfolio/positions":

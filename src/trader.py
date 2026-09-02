@@ -5,7 +5,7 @@ import math
 
 from config.settings import Settings
 from src.kalshi_client import KalshiClient
-from src.markets import MarketSnapshot
+from src.markets import MarketSnapshot, get_orderbook_summary
 from src.orders import get_balance, get_positions, place_order
 from src.predictor import Prediction, predict
 from src.price_feed import PriceFeed
@@ -15,11 +15,14 @@ logger = logging.getLogger("kalshi_bot")
 
 
 class Trader:
-    """Computes real-time predictions for every snapshot, and — only when
-    settings.can_trade is true — proposes at most one paper-trading order per
-    15-min market and blocks on the user's explicit y/N confirmation before
-    ever calling src.orders.place_order. See README.md for the full set of
-    safety gates (env flags, demo-only, per-order confirmation)."""
+    """Computes real-time predictions for every snapshot, logs each market's
+    open/close lifecycle and orderbook depth for later evaluation, and —
+    only when settings.can_trade is true — proposes at most one
+    paper-trading order per 15-min market and blocks on the user's explicit
+    y/N confirmation before ever calling src.orders.place_order. See
+    README.md for the full set of trading safety gates (env flags,
+    demo-only, per-order confirmation) -- none of that is affected by the
+    logging added here."""
 
     def __init__(
         self,
@@ -48,9 +51,19 @@ class Trader:
             return
 
         prediction = predict(snapshot, self._price_feed, self._settings)
+
+        self._storage.record_market_open(snapshot, prediction, self._settings.series_ticker)
+
+        try:
+            orderbook = get_orderbook_summary(self._client, snapshot.ticker)
+            self._storage.insert_orderbook_snapshot(orderbook)
+        except Exception:
+            logger.exception("Failed to fetch/store orderbook for %s", snapshot.ticker)
+
         if prediction is None:
             return
 
+        self._storage.fill_initial_prediction_if_missing(snapshot.ticker, prediction)
         self._storage.insert_prediction(prediction)
         logger.info("Prediction: %s", prediction.rationale)
 

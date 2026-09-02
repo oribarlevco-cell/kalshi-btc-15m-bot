@@ -66,6 +66,29 @@ def test_volatility_is_positive_for_varying_price():
     assert vol > 0
 
 
+def test_momentum_none_without_enough_history():
+    feed = _feed_with_prices([100.0, 101.0, 102.0], seconds_apart=20.0)
+
+    assert feed.momentum(window_seconds=300) is None
+
+
+def test_momentum_zero_for_flat_price():
+    feed = _feed_with_prices([100.0] * 20, seconds_apart=20.0)
+
+    assert feed.momentum(window_seconds=300) == 0.0
+
+
+def test_momentum_reflects_price_change_over_window():
+    prices = [100.0 + i for i in range(20)]  # spans 380s at 20s apart, never zero
+    feed = _feed_with_prices(prices, seconds_apart=20.0)
+
+    momentum = feed.momentum(window_seconds=300)
+
+    # latest price=119 (ts=380s); cutoff=80s -> reference is the sample at ts=80s (price=104)
+    assert momentum is not None
+    assert momentum == (119.0 - 104.0) / 104.0
+
+
 def test_max_samples_bounds_the_window():
     feed = PriceFeed(url="https://example.invalid/ticker", max_samples=3)
     session = FakeSession([1.0, 2.0, 3.0, 4.0])

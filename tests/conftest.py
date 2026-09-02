@@ -20,10 +20,13 @@ def make_settings(**overrides) -> Settings:
         price_feed_url="https://example.invalid/ticker",
         min_samples_for_prediction=5,
         min_signal_confidence=0.15,
+        momentum_window_seconds=300,
         trading_enabled=False,
         max_order_cost_dollars=5.0,
         trade_window_min_seconds=60,
         trade_window_max_seconds=780,
+        backup_dir=":memory-backups:",
+        backup_interval_hours=24,
     )
     defaults.update(overrides)
     return Settings(**defaults)

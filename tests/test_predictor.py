@@ -101,3 +101,69 @@ def test_at_the_money_predicts_near_coinflip():
 
     assert prediction is not None
     assert 0.3 < prediction.probability_yes < 0.7
+
+
+def test_prediction_includes_sigma_for_later_analysis():
+    snapshot = _snapshot(floor_strike=40000.0)
+    feed = _feed_with_varying_prices([50000, 50010, 49995, 50005, 50000])
+    settings = make_settings(min_samples_for_prediction=5)
+
+    prediction = predict(snapshot, feed, settings)
+
+    assert prediction is not None
+    assert prediction.sigma_per_sqrt_second > 0
+
+
+def test_momentum_is_none_without_enough_window_history():
+    # Fixture spans only 80s; default momentum_window_seconds (300) has no
+    # sample old enough yet.
+    snapshot = _snapshot(floor_strike=40000.0)
+    feed = _feed_with_varying_prices([50000, 50010, 49995, 50005, 50000])
+    settings = make_settings(min_samples_for_prediction=5, momentum_window_seconds=300)
+
+    prediction = predict(snapshot, feed, settings)
+
+    assert prediction is not None
+    assert prediction.momentum_pct is None
+
+
+class FakePriceFeed:
+    """Lets us control sigma/price/momentum independently to prove momentum
+    has no effect on the probability formula, without hand-crafting price
+    sequences that happen to produce a specific volatility."""
+
+    def __init__(self, price, sigma, momentum_pct, count):
+        self._price = price
+        self._sigma = sigma
+        self._momentum_pct = momentum_pct
+        self._count = count
+
+    @property
+    def sample_count(self):
+        return self._count
+
+    def latest_price(self):
+        return self._price
+
+    def volatility_per_second(self):
+        return self._sigma
+
+    def momentum(self, window_seconds):
+        return self._momentum_pct
+
+
+def test_momentum_does_not_affect_probability_yes():
+    snapshot = _snapshot(floor_strike=48000.0)
+    settings = make_settings(min_samples_for_prediction=5)
+
+    feed_momentum_up = FakePriceFeed(price=50000.0, sigma=0.0002, momentum_pct=0.05, count=10)
+    feed_momentum_down = FakePriceFeed(price=50000.0, sigma=0.0002, momentum_pct=-0.05, count=10)
+
+    prediction_up = predict(snapshot, feed_momentum_up, settings)
+    prediction_down = predict(snapshot, feed_momentum_down, settings)
+
+    assert prediction_up is not None and prediction_down is not None
+    assert prediction_up.probability_yes == prediction_down.probability_yes
+    assert prediction_up.confidence == prediction_down.confidence
+    assert prediction_up.momentum_pct == 0.05
+    assert prediction_down.momentum_pct == -0.05

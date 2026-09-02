@@ -26,6 +26,8 @@ class Prediction:
     confidence: float
     sample_count: int
     rationale: str
+    sigma_per_sqrt_second: float = 0.0
+    momentum_pct: float | None = None
 
 
 def predict(snapshot: MarketSnapshot, price_feed: PriceFeed, settings: Settings) -> Prediction | None:
@@ -64,6 +66,9 @@ def predict(snapshot: MarketSnapshot, price_feed: PriceFeed, settings: Settings)
     probability_yes = _norm_cdf(d2)
     confidence = abs(probability_yes - 0.5) * 2
 
+    # Momentum is logged for later analysis only -- it does not feed into d2.
+    momentum_pct = price_feed.momentum(settings.momentum_window_seconds)
+
     rationale = (
         f"BTC ${current_price:,.2f} vs strike ${snapshot.floor_strike:,.2f} "
         f"(delta {current_price - snapshot.floor_strike:+,.2f}), "
@@ -78,4 +83,6 @@ def predict(snapshot: MarketSnapshot, price_feed: PriceFeed, settings: Settings)
         confidence=confidence,
         sample_count=price_feed.sample_count,
         rationale=rationale,
+        sigma_per_sqrt_second=sigma,
+        momentum_pct=momentum_pct,
     )

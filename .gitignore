@@ -18,6 +18,7 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+data/backups/
 
 # OS
 .DS_Store

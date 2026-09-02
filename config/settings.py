@@ -24,11 +24,15 @@ class Settings:
     price_feed_url: str
     min_samples_for_prediction: int
     min_signal_confidence: float
+    momentum_window_seconds: int
 
     trading_enabled: bool
     max_order_cost_dollars: float
     trade_window_min_seconds: int
     trade_window_max_seconds: int
+
+    backup_dir: str
+    backup_interval_hours: float
 
     @property
     def has_credentials(self) -> bool:
@@ -59,8 +63,11 @@ def load_settings(env_file: str | None = None) -> Settings:
         price_feed_url=os.getenv("PRICE_FEED_URL", DEFAULT_PRICE_FEED_URL),
         min_samples_for_prediction=int(os.getenv("MIN_SAMPLES_FOR_PREDICTION", "5")),
         min_signal_confidence=float(os.getenv("MIN_SIGNAL_CONFIDENCE", "0.15")),
+        momentum_window_seconds=int(os.getenv("MOMENTUM_WINDOW_SECONDS", "300")),
         trading_enabled=os.getenv("TRADING_ENABLED", "false").strip().lower() == "true",
         max_order_cost_dollars=float(os.getenv("MAX_ORDER_COST_DOLLARS", "5.0")),
         trade_window_min_seconds=int(os.getenv("TRADE_WINDOW_MIN_SECONDS", "60")),
         trade_window_max_seconds=int(os.getenv("TRADE_WINDOW_MAX_SECONDS", "780")),
+        backup_dir=os.getenv("BACKUP_DIR", "data/backups"),
+        backup_interval_hours=float(os.getenv("BACKUP_INTERVAL_HOURS", "24")),
     )

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.markets import MarketSnapshot, discover_active_market
+from src.markets import MarketSnapshot, discover_active_market, get_orderbook_summary
 
 
 def _iso(dt: datetime) -> str:
@@ -82,3 +82,42 @@ def test_market_snapshot_time_remaining_and_probability():
     assert snapshot.implied_probability == pytest.approx(42.0)
     assert snapshot.floor_strike == pytest.approx(77301.95)
     assert snapshot.strike_type == "greater_or_equal"
+
+
+class FakeOrderbookClient:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def get(self, path):
+        assert path == "/markets/KXBTC15M-TEST/orderbook"
+        return self._payload
+
+
+def test_get_orderbook_summary_parses_real_shape():
+    client = FakeOrderbookClient(
+        {
+            "orderbook_fp": {
+                "no_dollars": [],
+                "yes_dollars": [["0.0100", "2.00"], ["0.1300", "1.00"], ["0.4400", "33.73"]],
+            }
+        }
+    )
+
+    summary = get_orderbook_summary(client, "KXBTC15M-TEST")
+
+    assert summary.ticker == "KXBTC15M-TEST"
+    assert summary.yes_levels == [(0.01, 2.0), (0.13, 1.0), (0.44, 33.73)]
+    assert summary.no_levels == []
+    assert summary.yes_depth_total == pytest.approx(36.73)
+    assert summary.no_depth_total == 0.0
+
+
+def test_get_orderbook_summary_handles_missing_book():
+    client = FakeOrderbookClient({"orderbook_fp": {}})
+
+    summary = get_orderbook_summary(client, "KXBTC15M-TEST")
+
+    assert summary.yes_levels == []
+    assert summary.no_levels == []
+    assert summary.yes_depth_total == 0.0
+    assert summary.no_depth_total == 0.0

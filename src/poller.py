@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from config.settings import Settings
+from src.backup import backup_database
 from src.kalshi_client import KalshiClient
 from src.markets import MarketSnapshot, discover_active_market, get_settled_history, get_snapshot
 from src.storage import Storage
@@ -49,6 +50,7 @@ def backfill_settled(client: KalshiClient, storage: Storage, settings: Settings,
     count = 0
     for payload in get_settled_history(client, settings.series_ticker, min_close_ts=min_close_ts):
         storage.upsert_settled_outcome(payload)
+        storage.finalize_market_lifecycle(payload, settings.series_ticker)
         count += 1
     if count:
         logger.info("Backfilled %d settled market(s)", count)
@@ -62,6 +64,8 @@ def run_forever(
     on_snapshot: Callable[[MarketSnapshot], None] | None = None,
 ) -> None:
     last_backfill = 0.0
+    last_backup = 0.0
+    backup_interval_seconds = settings.backup_interval_hours * 3600
     while True:
         try:
             run_once(client, storage, settings, on_snapshot=on_snapshot)
@@ -75,5 +79,12 @@ def run_forever(
             except Exception:
                 logger.exception("Settled-history backfill failed; continuing")
             last_backfill = now
+
+        if now - last_backup > backup_interval_seconds:
+            try:
+                backup_database(settings.db_path, settings.backup_dir)
+            except Exception:
+                logger.exception("Database backup failed; continuing")
+            last_backup = now
 
         time.sleep(settings.poll_interval_seconds)
