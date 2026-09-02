@@ -32,6 +32,35 @@ order — see [Safety](#safety) below.
   summarize → (optional) `on_snapshot` hook, plus periodic backfill of
   settled markets.
 - `src/summary.py` — formats a one-line summary of the current market.
+- `src/dashboard.py` — one-shot script that writes `docs/data.json` for the
+  live dashboard (see below); reuses the same `predictor.py` logic as `--predict`.
+
+## Live dashboard
+
+`docs/` is a small static page (plain HTML/CSS/JS, no framework) that renders
+the current market as a mini trading interface: BTC price vs. strike, a
+countdown to close, the model's probability as a bar, and YES/NO price tiles.
+
+**It's read-only.** The YES/NO tiles are styled like buttons but aren't —
+they don't call any API and can't place a trade. If we wire up clickable
+paper trades later, that'll be a separate, explicitly-confirmed change.
+
+A scheduled GitHub Actions workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
+runs `python -m src.dashboard` roughly every 2 minutes, commits the refreshed
+`docs/data.json`, and deploys `docs/` to GitHub Pages. The page itself also
+polls `data.json` every 20s and runs its own client-side countdown in
+between, so the timer doesn't visibly jump. Because `src/dashboard.py` runs
+fresh each time (no long-lived process to build up a price history like
+`--predict` has), it bootstraps a handful of BTC price samples a few seconds
+apart at the start of each run before predicting.
+
+To view it locally: `python3 -m http.server 8000 --directory docs`, then
+open `http://localhost:8000`.
+
+**One-time setup on GitHub** (I can't do this part — it's a repo settings
+change): go to the repo's **Settings → Pages** and set **Source** to
+**GitHub Actions**. After that, the workflow above publishes the page
+automatically; find its URL under Settings → Pages once it's deployed.
 
 ## The prediction model
 

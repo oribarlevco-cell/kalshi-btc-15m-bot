@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kalshi BTC 15-min dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="topbar">
+      <h1>BTC 15-min market</h1>
+      <span id="readonly-badge" class="badge">read-only</span>
+    </header>
+
+    <div id="card" class="card">
+      <div id="loading" class="state-msg">loading market data&hellip;</div>
+
+      <div id="content" class="hidden">
+        <div class="row-header">
+          <span class="market-name">BTC up or down</span>
+          <span id="ticker" class="ticker"></span>
+        </div>
+
+        <div class="countdown-block">
+          <div class="label">time remaining</div>
+          <div id="countdown" class="countdown">--:--</div>
+        </div>
+
+        <div class="price-grid">
+          <div class="price-tile">
+            <div class="label">BTC price</div>
+            <div id="btc-price" class="value">&mdash;</div>
+          </div>
+          <div class="price-tile">
+            <div class="label">strike</div>
+            <div id="strike-price" class="value">&mdash;</div>
+          </div>
+        </div>
+
+        <div class="prob-block">
+          <div class="prob-header">
+            <span>model probability</span>
+            <span id="prob-label" class="prob-label">&mdash;</span>
+          </div>
+          <div class="prob-bar-track">
+            <div id="prob-bar-fill" class="prob-bar-fill" style="width: 50%"></div>
+          </div>
+          <div id="prob-note" class="prob-note"></div>
+        </div>
+
+        <div class="side-grid">
+          <div id="yes-tile" class="side-tile side-yes">
+            <div class="side-name">YES</div>
+            <div id="yes-price" class="side-price">&mdash;</div>
+          </div>
+          <div id="no-tile" class="side-tile side-no">
+            <div class="side-name">NO</div>
+            <div id="no-price" class="side-price">&mdash;</div>
+          </div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat">
+            <div class="label">volume</div>
+            <div id="volume" class="stat-value">&mdash;</div>
+          </div>
+          <div class="stat stat-right">
+            <div class="label">open interest</div>
+            <div id="open-interest" class="stat-value">&mdash;</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="error" class="state-msg hidden"></div>
+    </div>
+
+    <footer class="footer">
+      <span id="updated-at">&mdash;</span>
+      &middot; refreshes automatically, roughly every couple of minutes
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

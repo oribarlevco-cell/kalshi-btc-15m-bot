@@ -1,0 +1,259 @@
+:root {
+  --bg: #ffffff;
+  --surface: #f4f5f6;
+  --surface-2: #ffffff;
+  --border: #e2e4e7;
+  --text-primary: #16181c;
+  --text-secondary: #5a6068;
+  --text-muted: #9aa0a8;
+  --green-bg: #e8f7ee;
+  --green-text: #0f7a3d;
+  --green-border: #a6e3bf;
+  --red-bg: #fdecec;
+  --red-text: #b3261e;
+  --red-border: #f3aeaa;
+  --mono: "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0e12;
+    --surface: #14171c;
+    --surface-2: #181c22;
+    --border: #262b33;
+    --text-primary: #f0f2f4;
+    --text-secondary: #9aa2ad;
+    --text-muted: #666e79;
+    --green-bg: #10261a;
+    --green-text: #4ade80;
+    --green-border: #1e4430;
+    --red-bg: #2a1414;
+    --red-text: #f87171;
+    --red-border: #4a2323;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 32px 16px;
+}
+
+.wrap {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.state-msg {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 40px 0;
+}
+
+.hidden {
+  display: none;
+}
+
+.row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.market-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ticker {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.countdown-block {
+  text-align: center;
+  margin: 20px 0 24px;
+}
+
+.countdown {
+  font-family: var(--mono);
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.countdown.urgent {
+  color: var(--red-text);
+}
+
+.price-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.price-tile {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.prob-block {
+  margin-bottom: 20px;
+}
+
+.prob-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.prob-label {
+  font-weight: 600;
+}
+
+.prob-label.yes-lean {
+  color: var(--green-text);
+}
+
+.prob-label.no-lean {
+  color: var(--red-text);
+}
+
+.prob-bar-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  overflow: hidden;
+}
+
+.prob-bar-fill {
+  height: 100%;
+  background: var(--green-text);
+  transition: width 0.4s ease;
+}
+
+.prob-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.side-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.side-tile {
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+  border: 1px solid;
+  cursor: default;
+  user-select: none;
+}
+
+.side-yes {
+  background: var(--green-bg);
+  border-color: var(--green-border);
+  color: var(--green-text);
+}
+
+.side-no {
+  background: var(--red-bg);
+  border-color: var(--red-border);
+  color: var(--red-text);
+}
+
+.side-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.side-price {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.stat-right {
+  text-align: right;
+}
+
+.stat-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+}
+
+.footer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
