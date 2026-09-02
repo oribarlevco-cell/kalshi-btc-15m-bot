@@ -1,0 +1,23 @@
+# Secrets / environment
+.env
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Data
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
