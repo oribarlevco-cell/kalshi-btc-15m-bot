@@ -61,12 +61,15 @@ class KalshiClient:
         stop=stop_after_attempt(5),
         reraise=True,
     )
-    def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """GET a Kalshi API path (e.g. "/markets"). `path` excludes the
-        /trade-api/v2 prefix, which is part of base_url."""
+    def _request(
+        self, method: str, path: str, params: dict[str, Any] | None = None, json_body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`path` excludes the /trade-api/v2 prefix, which is part of base_url."""
         signing_path = f"/trade-api/v2{path}"
-        headers = self._signed_headers("GET", signing_path)
-        response = self._session.get(f"{self._settings.base_url}{path}", params=params, headers=headers, timeout=10)
+        headers = self._signed_headers(method, signing_path)
+        response = self._session.request(
+            method, f"{self._settings.base_url}{path}", params=params, json=json_body, headers=headers, timeout=10
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RetryableKalshiError(response.status_code, response.text)
@@ -74,6 +77,15 @@ class KalshiClient:
             raise KalshiAPIError(response.status_code, response.text)
 
         return response.json()
+
+    def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("GET", path, params=params)
+
+    def post(self, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("POST", path, json_body=json_body)
+
+    def delete(self, path: str) -> dict[str, Any]:
+        return self._request("DELETE", path)
 
     def get_paginated(self, path: str, params: dict[str, Any] | None = None, item_key: str = "markets"):
         """Yield items across all pages of a cursor-paginated endpoint."""

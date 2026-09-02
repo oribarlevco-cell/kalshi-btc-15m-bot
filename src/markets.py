@@ -35,6 +35,8 @@ class MarketSnapshot:
     volume: float | None
     volume_24h: float | None
     open_interest: float | None
+    floor_strike: float | None
+    strike_type: str | None
     close_time: datetime
     pulled_at: datetime
 
@@ -63,6 +65,8 @@ class MarketSnapshot:
             volume=_as_float(payload.get("volume_fp")),
             volume_24h=_as_float(payload.get("volume_24h_fp")),
             open_interest=_as_float(payload.get("open_interest_fp")),
+            floor_strike=payload.get("floor_strike"),
+            strike_type=payload.get("strike_type"),
             close_time=_parse_ts(payload["close_time"]),
             pulled_at=_utcnow(),
         )

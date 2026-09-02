@@ -70,6 +70,8 @@ def test_market_snapshot_time_remaining_and_probability():
         "volume_fp": "1200.00",
         "volume_24h_fp": "5000.00",
         "open_interest_fp": "800.00",
+        "floor_strike": 77301.95,
+        "strike_type": "greater_or_equal",
         "close_time": _iso(close_time),
     }
 
@@ -78,3 +80,5 @@ def test_market_snapshot_time_remaining_and_probability():
     assert snapshot.ticker == "KXBTC15M-TEST"
     assert 0 < snapshot.time_remaining_seconds <= 300
     assert snapshot.implied_probability == pytest.approx(42.0)
+    assert snapshot.floor_strike == pytest.approx(77301.95)
+    assert snapshot.strike_type == "greater_or_equal"

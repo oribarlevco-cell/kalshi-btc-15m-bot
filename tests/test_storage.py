@@ -20,6 +20,8 @@ def _snapshot(ticker: str = "KXBTC15M-TEST") -> MarketSnapshot:
         volume=1200,
         volume_24h=5000,
         open_interest=800,
+        floor_strike=77301.95,
+        strike_type="greater_or_equal",
         close_time=now + timedelta(minutes=5),
         pulled_at=now,
     )

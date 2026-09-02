@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from config.settings import Settings
 from src.kalshi_client import KalshiAPIError, KalshiClient, RetryableKalshiError
+from tests.conftest import make_settings
 
 
 def _make_settings(tmp_path, with_credentials: bool) -> Settings:
@@ -25,15 +26,7 @@ def _make_settings(tmp_path, with_credentials: bool) -> Settings:
         api_key_id = "test-key-id"
         private_key_path = str(key_path)
 
-    return Settings(
-        env="demo",
-        base_url="https://external-api.demo.kalshi.co/trade-api/v2",
-        api_key_id=api_key_id,
-        private_key_path=private_key_path,
-        poll_interval_seconds=1,
-        db_path=":memory:",
-        series_ticker="KXBTC15M",
-    )
+    return make_settings(api_key_id=api_key_id, private_key_path=private_key_path)
 
 
 class FakeResponse:
@@ -51,8 +44,8 @@ class FakeSession:
         self._responses = list(responses)
         self.calls = []
 
-    def get(self, url, params=None, headers=None, timeout=None):
-        self.calls.append((url, params, headers))
+    def request(self, method, url, params=None, json=None, headers=None, timeout=None):
+        self.calls.append((method, url, params, json, headers))
         return self._responses.pop(0)
 
 
@@ -63,7 +56,8 @@ def test_unsigned_client_sends_no_auth_headers(tmp_path):
 
     client.get("/markets")
 
-    _, _, headers = session.calls[0]
+    method, _, _, _, headers = session.calls[0]
+    assert method == "GET"
     assert headers == {}
 
 
@@ -74,7 +68,7 @@ def test_signed_client_sets_valid_signature(tmp_path):
 
     client.get("/markets")
 
-    _, _, headers = session.calls[0]
+    _, _, _, _, headers = session.calls[0]
     assert headers["KALSHI-ACCESS-KEY"] == "test-key-id"
     assert headers["KALSHI-ACCESS-TIMESTAMP"].isdigit()
 
@@ -123,6 +117,29 @@ def test_raises_on_4xx_without_retry(tmp_path):
         assert not isinstance(e, RetryableKalshiError)
         assert e.status_code == 404
     assert len(session.calls) == 1
+
+
+def test_post_signs_with_post_method(tmp_path):
+    settings = _make_settings(tmp_path, with_credentials=True)
+    session = FakeSession([FakeResponse(200, {"order_id": "abc"})])
+    client = KalshiClient(settings, session=session)
+
+    client.post("/portfolio/events/orders", json_body={"ticker": "X"})
+
+    method, url, _, json_body, headers = session.calls[0]
+    assert method == "POST"
+    assert json_body == {"ticker": "X"}
+
+    with open(settings.private_key_path, "rb") as f:
+        private_key = serialization.load_pem_private_key(f.read(), password=None)
+    message = f"{headers['KALSHI-ACCESS-TIMESTAMP']}POST/trade-api/v2/portfolio/events/orders".encode("utf-8")
+    signature = base64.b64decode(headers["KALSHI-ACCESS-SIGNATURE"])
+    private_key.public_key().verify(
+        signature,
+        message,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256(),
+    )
 
 
 def test_paginates_across_cursor(tmp_path):

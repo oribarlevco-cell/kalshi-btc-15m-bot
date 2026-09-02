@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 from config.settings import Settings
 from src.kalshi_client import KalshiClient
-from src.markets import discover_active_market, get_settled_history, get_snapshot
+from src.markets import MarketSnapshot, discover_active_market, get_settled_history, get_snapshot
 from src.storage import Storage
-from src.strategy import evaluate_signal
 from src.summary import log_summary
 
 logger = logging.getLogger("kalshi_bot")
@@ -16,11 +16,18 @@ logger = logging.getLogger("kalshi_bot")
 BACKFILL_INTERVAL_SECONDS = 3600
 
 
-def run_once(client: KalshiClient, storage: Storage, settings: Settings) -> bool:
+def run_once(
+    client: KalshiClient,
+    storage: Storage,
+    settings: Settings,
+    on_snapshot: Callable[[MarketSnapshot], None] | None = None,
+) -> bool:
     """Discover the active market, snapshot it, store it, and log a summary.
 
     Returns True if a snapshot was taken, False if no market was open
-    (e.g. a brief rollover gap between 15-min windows).
+    (e.g. a brief rollover gap between 15-min windows). If `on_snapshot` is
+    given, it's called with the fresh snapshot (used by --predict/--trade to
+    layer prediction/trading logic on top of the base polling loop).
     """
     market = discover_active_market(client, settings.series_ticker)
     if market is None:
@@ -31,9 +38,8 @@ def run_once(client: KalshiClient, storage: Storage, settings: Settings) -> bool
     storage.insert_snapshot(snapshot)
     log_summary(snapshot)
 
-    signal = evaluate_signal(snapshot)
-    if signal is not None:
-        logger.info("Strategy signal (not acted on): %s", signal)
+    if on_snapshot is not None:
+        on_snapshot(snapshot)
 
     return True
 
@@ -49,11 +55,16 @@ def backfill_settled(client: KalshiClient, storage: Storage, settings: Settings,
     return count
 
 
-def run_forever(client: KalshiClient, storage: Storage, settings: Settings) -> None:
+def run_forever(
+    client: KalshiClient,
+    storage: Storage,
+    settings: Settings,
+    on_snapshot: Callable[[MarketSnapshot], None] | None = None,
+) -> None:
     last_backfill = 0.0
     while True:
         try:
-            run_once(client, storage, settings)
+            run_once(client, storage, settings, on_snapshot=on_snapshot)
         except Exception:
             logger.exception("Poll iteration failed; continuing")
 
