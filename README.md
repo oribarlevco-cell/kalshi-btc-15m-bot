@@ -110,6 +110,44 @@ resolve YES?), the overall Brier score (0 = perfect, 0.25 = no better than a
 coinflip), and directional accuracy. With little settled history yet, it
 just says so rather than erroring.
 
+## Historical backtesting (standalone)
+
+`backtesting/backtest_engine.py` is a self-contained addition, separate from
+everything above — it never touches `data/kalshi_btc15m.db`, never calls
+Kalshi's API, and doesn't import `src/trader.py`/`src/orders.py`, so it can't
+interfere with the live bot running via `nohup`. Instead of the settled
+markets the bot has actually observed (what `report_calibration` above
+scores), it replays `src.predictor.predict()` — the bot's real prediction
+math — against months of real BTC price history pulled from Binance's free
+public API, so you can evaluate the model over far more history than the
+bot has accumulated live.
+
+```bash
+pip3 install -r backtesting/requirements.txt   # pandas/numpy, on top of the bot's own requirements.txt
+
+python3 backtesting/backtest_engine.py                       # last 90 days, BTCUSDT
+python3 backtesting/backtest_engine.py --days 30              # shorter window
+python3 backtesting/backtest_engine.py --min-confidence 0.25  # override MIN_SIGNAL_CONFIDENCE for this run
+```
+
+Each run downloads 1-min BTCUSDT klines (caching them in `backtesting/data/`
+so reruns only fetch the new tail), resamples to 15-min windows, and walks
+each window tick-by-tick through a real `PriceFeed` and `predictor.predict()`
+using the same confidence/trade-window gating `Trader._should_propose_trade`
+uses live — so it only "trades" when the live bot would have. Results land
+in `backtesting/results/` as two timestamped CSVs per run (so you can compare
+runs over time): `..._trades.csv` (one row per simulated trade — direction,
+model probability, entry price, fee, actual outcome, P&L) and
+`..._summary.csv` (win rate, total P&L, fees, max drawdown, Sharpe).
+
+**Read the caveats at the top of `backtest_engine.py` before trusting the
+numbers** — Kalshi's real historical strikes and order-book quotes aren't
+publicly available, so the script approximates each window's strike as its
+open price and assumes trades fill at the model's own fair-value probability
+(zero slippage/mispricing). That means results mainly show whether the
+model's probabilities are *calibrated* against realized BTC moves, not
+whether it can out-price Kalshi's actual market.
+
 ## Backups
 
 `data/kalshi_btc15m.db` is local-only (see [Data safety](#data-safety)) and
