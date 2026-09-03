@@ -49,6 +49,9 @@ class Settings:
     strategy_tier2_multiplier: float
     multi_strategy_max_concurrent_positions: int
 
+    analytics_publish_enabled: bool
+    analytics_publish_interval_minutes: float
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.api_key_id and self.private_key_path)
@@ -105,4 +108,6 @@ def load_settings(env_file: str | None = None) -> Settings:
         strategy_tier1_multiplier=float(os.getenv("STRATEGY_TIER1_MULTIPLIER", "2")),
         strategy_tier2_multiplier=float(os.getenv("STRATEGY_TIER2_MULTIPLIER", "4")),
         multi_strategy_max_concurrent_positions=int(os.getenv("MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS", "5")),
+        analytics_publish_enabled=os.getenv("ANALYTICS_PUBLISH_ENABLED", "false").strip().lower() == "true",
+        analytics_publish_interval_minutes=float(os.getenv("ANALYTICS_PUBLISH_INTERVAL_MINUTES", "10")),
     )

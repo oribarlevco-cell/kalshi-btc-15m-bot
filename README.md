@@ -47,8 +47,15 @@ order — see [Safety](#safety) below.
   strategies (model/favorite/momentum/agreement) would bet and why, used
   identically by the historical backtest, the dashboard, and the live
   `multi_trader.py` so they never drift apart.
-- `src/live_server.py` — a local, token-gated, read-only HTTP server the
-  live dashboard polls directly (see [Live dashboard](#live-dashboard)).
+- `src/analytics.py` — builds the settled-windows/backtests/pattern-log/
+  calibration payload from the local DB; shared by `live_server.py` and
+  `publish_analytics.py` so both stay in sync.
+- `src/publish_analytics.py` — writes `docs/analytics.json` and commits+
+  pushes it; run periodically by `poller.run_forever` when
+  `ANALYTICS_PUBLISH_ENABLED=true` (see [Live dashboard](#live-dashboard)).
+- `src/live_server.py` — an optional local, token-gated, read-only HTTP
+  server for real-time updates beyond what static publishing gives you
+  (see [Live dashboard](#live-dashboard)).
 - `src/multi_trader.py` — automated paper trading for momentum/favorite/
   agreement, no per-trade confirmation (see
   [Automated multi-strategy paper trading](#automated-multi-strategy-paper-trading)).
@@ -102,31 +109,42 @@ settings and can't touch any real data (see
 [Data source: static vs. live](#data-source-static-vs-live) for why that's
 structurally true, not just a promise).
 
-### Data source: static vs. live
+### Data source: static publish vs. live server
 
-Backtests, the pattern log, and calibration all come from
-`market_lifecycle`/`predictions`/`orderbook_snapshots` — tables that only
-exist in your **local** SQLite file (gitignored, never reaches GitHub). A
-GitHub Actions runner has no access to it, so there are two layers:
+Everything the dashboard shows comes from `market_lifecycle`/`predictions`/
+`orderbook_snapshots` — tables that only exist in your **local** SQLite file
+(gitignored, never reaches GitHub). A GitHub Actions runner has no access to
+it, so getting anything onto the public page always starts on your Mac. Two
+independent layers publish to two separate files, so they never conflict:
 
-1. **Static fallback** (always on): a scheduled GitHub Actions workflow
-   ([.github/workflows/pages.yml](.github/workflows/pages.yml)) runs
-   `python -m src.dashboard` roughly every 2 minutes, commits the refreshed
-   `docs/data.json` (market tile only — no local DB access), and deploys
-   `docs/` to GitHub Pages.
-2. **Live** (optional, opt-in): run `python -m src.live_server` on your own
-   Mac (needs `LIVE_SERVER_TOKEN` set in `.env` — see below), then tunnel it
-   with something like `ngrok http 8899`. Paste the resulting URL into the
-   page's gear-icon settings panel (stored only in that browser's
-   `localStorage`). The page then polls your machine directly every 15s for
-   everything, including the analytics sections; it falls back to the
-   static tile automatically if the live server/tunnel goes offline.
+1. **The live tile** (`docs/data.json`) — a scheduled GitHub Actions
+   workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
+   runs `python -m src.dashboard` roughly every 2 minutes, straight from
+   Kalshi's/Coinbase's public APIs (no local DB access needed for this
+   part), and deploys `docs/` to GitHub Pages. Always on, zero setup.
+2. **Everything historical/aggregate** (`docs/analytics.json`) — recent
+   settled windows, the backtest table, pattern log, and calibration trend
+   don't need to be real-time, so instead of a live connection they're
+   published periodically from your own already-running `--predict`/`--trade`
+   process: set `ANALYTICS_PUBLISH_ENABLED=true` and it writes
+   `docs/analytics.json` and commits+pushes it every
+   `ANALYTICS_PUBLISH_INTERVAL_MINUTES` (default 10) — nothing extra to run.
+   The plain GitHub Pages URL shows all of this with no live server and no
+   ngrok. (Run `python -m src.publish_analytics` any time for an
+   on-demand push instead of waiting for the timer.)
 
-**The live server is genuinely a port reachable from the internet while
-it's running**, so it's deliberately narrow: binds `127.0.0.1` only (the
-tunnel is what exposes it, not the process itself), requires the token on
-every request, sets CORS to your Pages origin only, and exposes exactly one
+**The live server (`python -m src.live_server`) is optional**, and reserved
+for the one thing the above genuinely can't do — a market tile that updates
+faster than ~2 minutes. It's a real port reachable from the internet while
+it's running (via your own tunnel, e.g. `ngrok http 8899`), so it's
+deliberately narrow: binds `127.0.0.1` only (the tunnel is what exposes it,
+not the process itself), requires a token (`LIVE_SERVER_TOKEN`) on every
+request, sets CORS to your Pages origin only, and exposes exactly one
 read-only endpoint — there is no path from the public page to any write.
+Paste the tunnel URL into the page's gear-icon settings panel (stored only
+in that browser's `localStorage`) and it polls your machine directly every
+15s for everything, including analytics; it falls back to the static files
+automatically if the live server/tunnel goes offline.
 
 To view the page locally without any of this: `python3 -m http.server 8000
 --directory docs`, then open `http://localhost:8000`.
@@ -228,7 +246,9 @@ credentials (see [Safety](#safety)).
 | `TRADE_WINDOW_MIN_SECONDS` / `TRADE_WINDOW_MAX_SECONDS` | no (default `60`/`780`) | Only propose trades when time remaining in the 15-min window falls in this range |
 | `BACKUP_DIR` | no (default `data/backups`) | Where periodic DB backups/CSV exports go |
 | `BACKUP_INTERVAL_HOURS` | no (default `24`) | How often `run_forever` backs up the DB |
-| `LIVE_SERVER_TOKEN` | required for `live_server.py` | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `ANALYTICS_PUBLISH_ENABLED` | no (default `false`) | Publish `docs/analytics.json` (settled windows/backtests/pattern log/calibration) to GitHub periodically |
+| `ANALYTICS_PUBLISH_INTERVAL_MINUTES` | no (default `10`) | How often `run_forever` publishes analytics when enabled |
+| `LIVE_SERVER_TOKEN` | required for `live_server.py` (optional feature) | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `LIVE_SERVER_PORT` | no (default `8899`) | Local-only port the live server binds |
 | `LIVE_SERVER_ALLOWED_ORIGIN` | no (default your Pages origin) | CORS is locked to exactly this origin |
 | `LIVE_SERVER_REFRESH_SECONDS` | no (default `15`) | How often the live server recomputes its cached payload |
@@ -264,6 +284,9 @@ python -m src.live_server
 
 # Automated paper trading for momentum/favorite/agreement, no confirmation
 python -m src.multi_trader
+
+# One-off: publish docs/analytics.json now instead of waiting for the timer
+python -m src.publish_analytics
 ```
 
 Data lands in the SQLite file at `DB_PATH` (default

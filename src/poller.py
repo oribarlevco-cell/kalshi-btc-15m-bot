@@ -9,6 +9,7 @@ from config.settings import Settings
 from src.backup import backup_database
 from src.kalshi_client import KalshiClient
 from src.markets import MarketSnapshot, discover_active_market, get_settled_history, get_snapshot
+from src.publish_analytics import publish_once
 from src.storage import Storage
 from src.summary import log_summary
 
@@ -65,7 +66,9 @@ def run_forever(
 ) -> None:
     last_backfill = 0.0
     last_backup = 0.0
+    last_analytics_publish = 0.0
     backup_interval_seconds = settings.backup_interval_hours * 3600
+    analytics_publish_interval_seconds = settings.analytics_publish_interval_minutes * 60
     while True:
         try:
             run_once(client, storage, settings, on_snapshot=on_snapshot)
@@ -86,5 +89,12 @@ def run_forever(
             except Exception:
                 logger.exception("Database backup failed; continuing")
             last_backup = now
+
+        if settings.analytics_publish_enabled and now - last_analytics_publish > analytics_publish_interval_seconds:
+            try:
+                publish_once(settings)
+            except Exception:
+                logger.exception("Publishing dashboard analytics failed; continuing")
+            last_analytics_publish = now
 
         time.sleep(settings.poll_interval_seconds)

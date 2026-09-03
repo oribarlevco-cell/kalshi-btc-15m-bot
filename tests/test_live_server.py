@@ -10,7 +10,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from src.live_server import _Cache, build_live_tile, build_payload, build_recent_settled, make_handler
+from src.live_server import _Cache, build_live_tile, build_payload, make_handler
 from src.storage import Storage
 from tests.conftest import make_settings
 
@@ -125,29 +125,6 @@ def test_build_live_tile_no_data_yet(tmp_path):
     conn.close()
 
     assert tile == {"error": "no_data_yet"}
-
-
-def test_build_recent_settled(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    storage = Storage(db_path)
-    storage._conn.execute(
-        "INSERT INTO market_lifecycle (ticker, actual_result, closed_logged_at_utc) VALUES (?, ?, ?)",
-        ("T1", "yes", "2026-01-01T00:15:00+00:00"),
-    )
-    storage._conn.execute(
-        "INSERT INTO market_lifecycle (ticker, actual_result, closed_logged_at_utc) VALUES (?, ?, ?)",
-        ("T2", "no", "2026-01-01T00:30:00+00:00"),
-    )
-    storage._conn.commit()
-    storage.close()
-
-    conn = sqlite3.connect(db_path)
-    settled = build_recent_settled(conn)
-    conn.close()
-
-    assert settled[0]["ticker"] == "T2"  # most recent first
-    assert settled[0]["result"] == "no"
-    assert len(settled) == 2
 
 
 def test_build_payload_shape(tmp_path):

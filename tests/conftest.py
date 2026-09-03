@@ -40,6 +40,8 @@ def make_settings(**overrides) -> Settings:
         strategy_tier1_multiplier=2,
         strategy_tier2_multiplier=4,
         multi_strategy_max_concurrent_positions=5,
+        analytics_publish_enabled=False,
+        analytics_publish_interval_minutes=10,
     )
     defaults.update(overrides)
     return Settings(**defaults)

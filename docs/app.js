@@ -343,19 +343,52 @@
     els.calibrationCard.classList.add("hidden");
   }
 
+  function renderAnalytics(analytics) {
+    renderRecentSettled(analytics.recent_settled);
+    renderBacktests(analytics.backtests);
+    renderPatternLog(analytics.pattern_log, analytics.backtests);
+    renderCalibration(analytics.calibration, analytics.calibration_trend);
+  }
+
+  function fetchJson(url) {
+    return fetchWithTimeout(url, LIVE_FETCH_TIMEOUT_MS).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    });
+  }
+
+  // Analytics (settled windows, backtests, pattern log, calibration) are
+  // historical/aggregate, not real-time -- they're published to a static
+  // file by your local bot every ~10 min, same as the live tile's static
+  // fallback. Only genuinely real-time data needs the live server/ngrok.
   function fetchStatic() {
-    fetchWithTimeout("data.json?_=" + Date.now(), LIVE_FETCH_TIMEOUT_MS)
-      .then(function (response) {
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        return response.json();
-      })
-      .then(function (data) {
+    const tilePromise = fetchJson("data.json?_=" + Date.now());
+    const analyticsPromise = fetchJson("analytics.json?_=" + Date.now()).catch(function () {
+      return null; // no published analytics yet -- don't fail the whole render over it
+    });
+
+    Promise.all([tilePromise, analyticsPromise])
+      .then(function (results) {
+        const tile = results[0];
+        const analytics = results[1];
         liveMode = false;
         setConnBadge("static");
-        lastPayload = data;
-        renderLiveTile(data);
-        renderOfflineAnalytics();
-        els.updatedAt.textContent = data.generated_at ? "updated " + relativeTime(data.generated_at) : "";
+        lastPayload = {
+          generated_at: tile.generated_at,
+          live_tile: tile,
+          recent_settled: analytics ? analytics.recent_settled : [],
+          backtests: analytics ? analytics.backtests : [],
+          pattern_log: analytics ? analytics.pattern_log : null,
+          calibration: analytics ? analytics.calibration : null,
+          calibration_trend: analytics ? analytics.calibration_trend : [],
+        };
+        renderLiveTile(tile);
+        if (analytics && analytics.generated_at) {
+          renderAnalytics(analytics);
+        } else {
+          renderOfflineAnalytics();
+        }
+        els.updatedAt.textContent = tile.generated_at ? "updated " + relativeTime(tile.generated_at) : "";
       })
       .catch(function () {
         if (els.content.classList.contains("hidden") && els.error.classList.contains("hidden")) {
@@ -366,20 +399,13 @@
 
   function fetchLive(liveUrl) {
     const url = liveUrl + (liveUrl.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
-    fetchWithTimeout(url, LIVE_FETCH_TIMEOUT_MS)
-      .then(function (response) {
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        return response.json();
-      })
+    fetchJson(url)
       .then(function (data) {
         liveMode = true;
         setConnBadge("live");
         lastPayload = data;
         renderLiveTile(data.live_tile);
-        renderRecentSettled(data.recent_settled);
-        renderBacktests(data.backtests);
-        renderPatternLog(data.pattern_log, data.backtests);
-        renderCalibration(data.calibration, data.calibration_trend);
+        renderAnalytics(data);
         els.updatedAt.textContent = data.generated_at ? "updated " + relativeTime(data.generated_at) : "";
       })
       .catch(function () {

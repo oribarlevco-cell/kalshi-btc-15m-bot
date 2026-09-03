@@ -12,6 +12,7 @@ on:
       - "docs/index.html"
       - "docs/style.css"
       - "docs/app.js"
+      - "docs/analytics.json"
       - ".github/workflows/pages.yml"
 
 permissions:
