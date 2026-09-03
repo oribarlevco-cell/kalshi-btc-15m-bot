@@ -2,7 +2,7 @@ name: Update dashboard and deploy Pages
 
 on:
   schedule:
-    - cron: "*/2 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   push:
     branches: [main]

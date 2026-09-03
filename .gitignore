@@ -20,5 +20,8 @@ dist/
 *.sqlite3
 data/backups/
 
+# Logs
+logs/
+
 # OS
 .DS_Store

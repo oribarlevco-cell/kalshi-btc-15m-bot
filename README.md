@@ -152,9 +152,13 @@ independent layers publish to two separate files, so they never conflict:
 
 1. **The live tile** (`docs/data.json`) — a scheduled GitHub Actions
    workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
-   runs `python -m src.dashboard` roughly every 2 minutes, straight from
+   runs `python -m src.dashboard` roughly every 5 minutes, straight from
    Kalshi's/Coinbase's public APIs (no local DB access needed for this
    part), and deploys `docs/` to GitHub Pages. Always on, zero setup.
+   (A shorter cron was tried first but GitHub silently throttles/drops
+   sub-5-minute schedules on free-tier private repos — if the countdown
+   ever looks frozen, check the workflow's Actions tab, or re-trigger it
+   manually with the "Run workflow" button.)
 2. **Everything historical/aggregate** (`docs/analytics.json`) — recent
    settled windows, the backtest table, pattern log, and calibration trend
    don't need to be real-time, so instead of a live connection they're
@@ -168,7 +172,7 @@ independent layers publish to two separate files, so they never conflict:
 
 **The live server (`python -m src.live_server`) is optional**, and reserved
 for the one thing the above genuinely can't do — a market tile that updates
-faster than ~2 minutes. It's a real port reachable from the internet while
+faster than ~5 minutes. It's a real port reachable from the internet while
 it's running (via your own tunnel, e.g. `ngrok http 8899`), so it's
 deliberately narrow: binds `127.0.0.1` only (the tunnel is what exposes it,
 not the process itself), requires a token (`LIVE_SERVER_TOKEN`) on every
