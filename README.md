@@ -148,6 +148,39 @@ open price and assumes trades fill at the model's own fair-value probability
 model's probabilities are *calibrated* against realized BTC moves, not
 whether it can out-price Kalshi's actual market.
 
+### Known finding: tail overconfidence
+
+A 90-day run's calibration report shows the model's most extreme calls
+overstate their own certainty: at 90-100% predicted confidence, only ~82%
+actually land that way — and that bucket has the worst per-trade P&L of any
+confidence band (the model's most confident trades lose the most money).
+The 20-80% range is calibrated fine; only the tails are off.
+
+`backtesting/calibration_fix.py` walk-forward tests two candidate fixes
+(never touching `src/predictor.py` — this is backtest-only). Platt scaling
+(smoothly compressing log-odds) looked good on a single train/test split but
+turned out unstable under proper walk-forward validation — it only improved
+the Brier score in 3 of 9 sequential out-of-sample folds; its apparent P&L
+gain was mostly an artifact of this backtest's "fill at the model's own
+probability" assumption (shrinking any confident claim mechanically lowers
+the modeled cost, regardless of whether calibration actually improved). A
+simple hard cap on the probability (clip to e.g. `[0.10, 0.90]`) did better:
+it improved the Brier score in 9 of 9 folds, consistently, because the
+miscalibration is concentrated at the extremes rather than being a smooth
+log-odds problem — matching a targeted fix beats a smooth one here.
+
+This is a real, reproducible signal but not a validated fix yet: the cap
+bounds were a first guess, not tuned (tuning them against the same 9 folds
+repeatedly would just be overfitting), and it only narrows the tail gap
+(~13pts down to ~7.5pts), it doesn't close it. Promoting anything from this
+into the live model would be a separate, deliberate change to
+`src/predictor.py` — not something either script does automatically.
+
+```bash
+python3 backtesting/calibration_fix.py                                   # walk-forward Platt scaling
+python3 backtesting/calibration_fix.py --method cap --cap-lo 0.1 --cap-hi 0.9
+```
+
 ## Backups
 
 `data/kalshi_btc15m.db` is local-only (see [Data safety](#data-safety)) and
