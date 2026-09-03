@@ -27,6 +27,19 @@ def make_settings(**overrides) -> Settings:
         trade_window_max_seconds=780,
         backup_dir=":memory-backups:",
         backup_interval_hours=24,
+        live_server_port=8899,
+        live_server_token="test-token",
+        live_server_allowed_origin="https://example.invalid",
+        live_server_refresh_seconds=15,
+        calibration_snapshot_interval_minutes=15,
+        multi_strategy_trading_enabled=False,
+        strategy_tier1_min_n=20,
+        strategy_tier1_min_ci_lower=0.50,
+        strategy_tier2_min_n=50,
+        strategy_tier2_min_ci_lower=0.55,
+        strategy_tier1_multiplier=2,
+        strategy_tier2_multiplier=4,
+        multi_strategy_max_concurrent_positions=5,
     )
     defaults.update(overrides)
     return Settings(**defaults)

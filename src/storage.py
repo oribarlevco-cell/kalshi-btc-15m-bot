@@ -111,6 +111,16 @@ CREATE TABLE IF NOT EXISTS orderbook_snapshots (
     no_depth_total REAL
 );
 CREATE INDEX IF NOT EXISTS idx_orderbook_ticker ON orderbook_snapshots(ticker);
+
+CREATE TABLE IF NOT EXISTS calibration_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    computed_at_utc TEXT NOT NULL,
+    which TEXT NOT NULL,
+    n INTEGER NOT NULL,
+    brier_score REAL,
+    directional_accuracy REAL
+);
+CREATE INDEX IF NOT EXISTS idx_calibration_snapshots_which ON calibration_snapshots(which, computed_at_utc);
 """
 
 
@@ -130,10 +140,18 @@ class Storage:
         columns added to `predictions` after it first shipped need an
         explicit, idempotent ALTER TABLE here. Existing rows get NULL for
         the new columns -- nothing is lost."""
-        existing_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(predictions)").fetchall()}
+        existing_pred_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(predictions)").fetchall()}
         for column, decl in (("sigma_per_sqrt_second", "REAL"), ("momentum_pct", "REAL")):
-            if column not in existing_cols:
+            if column not in existing_pred_cols:
                 self._conn.execute(f"ALTER TABLE predictions ADD COLUMN {column} {decl}")
+
+        existing_order_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(orders)").fetchall()}
+        if "strategy" not in existing_order_cols:
+            self._conn.execute("ALTER TABLE orders ADD COLUMN strategy TEXT")
+            # Every order placed before this column existed came from the
+            # manual, model-confirmed --trade flow.
+            self._conn.execute("UPDATE orders SET strategy = 'model' WHERE strategy IS NULL")
+
         self._conn.commit()
 
     def insert_snapshot(self, snapshot: MarketSnapshot) -> None:
@@ -214,8 +232,8 @@ class Storage:
             """
             INSERT INTO orders (
                 ticker, direction, side, price, count, cost_dollars, client_order_id,
-                kalshi_order_id, status, placed_at_utc, rationale, fill_count, average_fill_price
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kalshi_order_id, status, placed_at_utc, rationale, fill_count, average_fill_price, strategy
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record["ticker"],
@@ -231,9 +249,30 @@ class Storage:
                 record.get("rationale"),
                 record.get("fill_count"),
                 record.get("average_fill_price"),
+                record.get("strategy", "model"),
             ),
         )
         self._conn.commit()
+
+    def has_order_for_strategy(self, ticker: str, strategy: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM orders WHERE ticker = ? AND strategy = ? LIMIT 1", (ticker, strategy)
+        ).fetchone()
+        return row is not None
+
+    def count_open_positions_for_strategy(self, strategy: str) -> int:
+        """Number of tickers this strategy holds an order on whose market
+        hasn't settled yet (a reasonable proxy for "open" since IOC orders
+        never rest, and Kalshi has no concept of our internal strategies)."""
+        row = self._conn.execute(
+            """
+            SELECT COUNT(DISTINCT o.ticker) FROM orders o
+            LEFT JOIN market_lifecycle m ON m.ticker = o.ticker
+            WHERE o.strategy = ? AND (m.actual_result IS NULL)
+            """,
+            (strategy,),
+        ).fetchone()
+        return row[0] if row else 0
 
     def record_market_open(self, snapshot: MarketSnapshot, prediction: Prediction | None, series_ticker: str) -> None:
         """Log the first time we see a market, idempotently. `prediction` may
@@ -350,6 +389,48 @@ class Storage:
             ),
         )
         self._conn.commit()
+
+    def initial_probability_yes(self, ticker: str) -> float | None:
+        row = self._conn.execute(
+            "SELECT initial_probability_yes FROM market_lifecycle WHERE ticker = ?", (ticker,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def opening_quote(self, ticker: str) -> tuple[float | None, float | None, float | None, float | None] | None:
+        """The earliest logged snapshot's yes_bid/yes_ask/no_bid/no_ask for a
+        ticker -- used as the "market open" reference price for backtesting
+        and live strategy direction, since these aren't duplicated onto
+        market_lifecycle."""
+        row = self._conn.execute(
+            "SELECT yes_bid, yes_ask, no_bid, no_ask FROM snapshots "
+            "WHERE ticker = ? ORDER BY pulled_at_utc ASC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        return tuple(row) if row else None
+
+    def opening_momentum_pct(self, ticker: str) -> float | None:
+        row = self._conn.execute(
+            "SELECT momentum_pct FROM predictions WHERE ticker = ? ORDER BY computed_at_utc ASC LIMIT 1", (ticker,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def insert_calibration_snapshot(
+        self, which: str, n: int, brier_score: float | None, directional_accuracy: float | None
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO calibration_snapshots (computed_at_utc, which, n, brier_score, directional_accuracy) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (datetime.now(timezone.utc).isoformat(), which, n, brier_score, directional_accuracy),
+        )
+        self._conn.commit()
+
+    def recent_calibration_snapshots(self, which: str, limit: int = 50) -> list[tuple]:
+        cursor = self._conn.execute(
+            "SELECT computed_at_utc, n, brier_score, directional_accuracy FROM calibration_snapshots "
+            "WHERE which = ? ORDER BY computed_at_utc DESC LIMIT ?",
+            (which, limit),
+        )
+        return cursor.fetchall()
 
     def recent_snapshots(self, ticker: str, limit: int = 50) -> list[sqlite3.Row]:
         self._conn.row_factory = sqlite3.Row

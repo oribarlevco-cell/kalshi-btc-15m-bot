@@ -3,8 +3,12 @@
 Monitors Kalshi's `KXBTC15M` series — Bitcoin up/down contracts that roll over
 every 15 minutes, 24/7 — pulls live market data, generates a real-time
 prediction from an independent BTC price feed, stores everything locally in
-SQLite, and (optionally) proposes **paper trades** on Kalshi's demo account
-that you confirm one at a time.
+SQLite, and can either propose **paper trades** you confirm one at a time
+(`--trade`) or run up to three additional strategies fully automatically
+(`multi_trader.py`, also paper-only — see below). A live dashboard on
+GitHub Pages shows all of it: market pricing vs. the model's own prediction,
+recent results, strategy backtests with confidence intervals, and a
+calibration trend.
 
 **This bot only ever trades paper money on Kalshi's `demo` environment.**
 There is no code path in this repo that places a real, prod, real-money
@@ -33,11 +37,21 @@ order — see [Safety](#safety) below.
   summarize → (optional) `on_snapshot` hook, plus periodic backfill of
   settled markets and periodic DB backups.
 - `src/summary.py` — formats a one-line summary of the current market.
-- `src/dashboard.py` — one-shot script that writes `docs/data.json` for the
-  live dashboard (see below); reuses the same `predictor.py` logic as `--predict`.
+- `src/dashboard.py` — one-shot script that writes `docs/data.json`, the
+  static fallback for the live dashboard's market tile (see below); reuses
+  the same `predictor.py` logic as `--predict`.
 - `src/report_calibration.py` — compares predictions to actual outcomes (see
   [Evaluating the model](#evaluating-the-model)).
 - `src/backup.py` — SQLite backups + CSV export (see [Backups](#backups)).
+- `src/backtest.py` — the single source of truth for what each of the 4
+  strategies (model/favorite/momentum/agreement) would bet and why, used
+  identically by the historical backtest, the dashboard, and the live
+  `multi_trader.py` so they never drift apart.
+- `src/live_server.py` — a local, token-gated, read-only HTTP server the
+  live dashboard polls directly (see [Live dashboard](#live-dashboard)).
+- `src/multi_trader.py` — automated paper trading for momentum/favorite/
+  agreement, no per-trade confirmation (see
+  [Automated multi-strategy paper trading](#automated-multi-strategy-paper-trading)).
 
 ## Evaluating the model
 
@@ -72,30 +86,88 @@ every table to CSV, `--keep N` to change retention).
 
 ## Live dashboard
 
-`docs/` is a small static page (plain HTML/CSS/JS, no framework) that renders
-the current market as a mini trading interface: BTC price vs. strike, a
-countdown to close, the model's probability as a bar, and YES/NO price tiles.
+`docs/` is a static page (plain HTML/CSS/JS, no framework) that renders the
+current market as a mini trading interface, plus everything below it:
+market pricing (Kalshi's own live bid/ask) and the model's prediction shown
+**separately and clearly labeled**, so they're never confused; BTC price vs.
+strike and 1-min/15-min momentum; a countdown; the last 10 settled windows;
+a 4-strategy backtest table (win rate ± 95% confidence interval, average
+P&L, with low-sample-size rows visually flagged); a pattern log; and a
+calibration chart with a trend indicator.
 
-**It's read-only.** The YES/NO tiles are styled like buttons but aren't —
-they don't call any API and can't place a trade. If we wire up clickable
-paper trades later, that'll be a separate, explicitly-confirmed change.
+**It's read-only.** Nothing on the page places a trade — not the market
+pricing tiles, not any button. "Export" downloads whatever's currently
+shown as a JSON file; "clear" only resets this browser's own cached
+settings and can't touch any real data (see
+[Data source: static vs. live](#data-source-static-vs-live) for why that's
+structurally true, not just a promise).
 
-A scheduled GitHub Actions workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
-runs `python -m src.dashboard` roughly every 2 minutes, commits the refreshed
-`docs/data.json`, and deploys `docs/` to GitHub Pages. The page itself also
-polls `data.json` every 20s and runs its own client-side countdown in
-between, so the timer doesn't visibly jump. Because `src/dashboard.py` runs
-fresh each time (no long-lived process to build up a price history like
-`--predict` has), it bootstraps a handful of BTC price samples a few seconds
-apart at the start of each run before predicting.
+### Data source: static vs. live
 
-To view it locally: `python3 -m http.server 8000 --directory docs`, then
-open `http://localhost:8000`.
+Backtests, the pattern log, and calibration all come from
+`market_lifecycle`/`predictions`/`orderbook_snapshots` — tables that only
+exist in your **local** SQLite file (gitignored, never reaches GitHub). A
+GitHub Actions runner has no access to it, so there are two layers:
+
+1. **Static fallback** (always on): a scheduled GitHub Actions workflow
+   ([.github/workflows/pages.yml](.github/workflows/pages.yml)) runs
+   `python -m src.dashboard` roughly every 2 minutes, commits the refreshed
+   `docs/data.json` (market tile only — no local DB access), and deploys
+   `docs/` to GitHub Pages.
+2. **Live** (optional, opt-in): run `python -m src.live_server` on your own
+   Mac (needs `LIVE_SERVER_TOKEN` set in `.env` — see below), then tunnel it
+   with something like `ngrok http 8899`. Paste the resulting URL into the
+   page's gear-icon settings panel (stored only in that browser's
+   `localStorage`). The page then polls your machine directly every 15s for
+   everything, including the analytics sections; it falls back to the
+   static tile automatically if the live server/tunnel goes offline.
+
+**The live server is genuinely a port reachable from the internet while
+it's running**, so it's deliberately narrow: binds `127.0.0.1` only (the
+tunnel is what exposes it, not the process itself), requires the token on
+every request, sets CORS to your Pages origin only, and exposes exactly one
+read-only endpoint — there is no path from the public page to any write.
+
+To view the page locally without any of this: `python3 -m http.server 8000
+--directory docs`, then open `http://localhost:8000`.
 
 **One-time setup on GitHub** (I can't do this part — it's a repo settings
 change): go to the repo's **Settings → Pages** and set **Source** to
 **GitHub Actions**. After that, the workflow above publishes the page
 automatically; find its URL under Settings → Pages once it's deployed.
+
+## Automated multi-strategy paper trading
+
+`python -m src.multi_trader` runs **momentum**, **favorite**, and
+**agreement** automatically — no per-trade confirmation, unlike `--trade`.
+This was an explicit, deliberate choice: **paper/demo money only**, real
+money is out of scope and there's no code path toward it here.
+
+- **model** — Kalshi's own market-implied favorite at open
+- **favorite** — bets whichever side the market already favors at open
+- **momentum** — bets the recent BTC momentum direction
+- **agreement** — only bets when the model and momentum agree
+
+Position size starts at the same floor as `--trade`
+(`MAX_ORDER_COST_DOLLARS`) and only increases once a strategy's *own*
+backtested win rate clears an evidence bar — a 95% Wilson confidence
+interval lower bound above a coinflip, at a real sample size — not on a
+timer or a feeling:
+
+| Tier | Condition | Stake |
+|---|---|---|
+| 0 (floor) | default | `MAX_ORDER_COST_DOLLARS` |
+| 1 | n ≥ `STRATEGY_TIER1_MIN_N` (20) and 95% CI lower bound ≥ `STRATEGY_TIER1_MIN_CI_LOWER` (0.50) | `STRATEGY_TIER1_MULTIPLIER`× floor (2×) |
+| 2 | n ≥ `STRATEGY_TIER2_MIN_N` (50) and 95% CI lower bound ≥ `STRATEGY_TIER2_MIN_CI_LOWER` (0.55) | `STRATEGY_TIER2_MULTIPLIER`× floor (4×) |
+
+Every safety invariant from `--trade` still applies (`KALSHI_ENV=demo`,
+credentials required) plus its own separate opt-in,
+`MULTI_STRATEGY_TRADING_ENABLED` — independent of `TRADING_ENABLED`, so
+turning this on is always a deliberate, distinct choice.
+`KALSHI_ENV=prod` hard-blocks it exactly like it blocks `--trade`. Each
+strategy tracks its own positions (a `strategy` column on `orders`) and
+caps itself at `MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS` (default 5) open
+positions at a time, independently of the other strategies.
 
 ## The prediction model
 
@@ -156,6 +228,16 @@ credentials (see [Safety](#safety)).
 | `TRADE_WINDOW_MIN_SECONDS` / `TRADE_WINDOW_MAX_SECONDS` | no (default `60`/`780`) | Only propose trades when time remaining in the 15-min window falls in this range |
 | `BACKUP_DIR` | no (default `data/backups`) | Where periodic DB backups/CSV exports go |
 | `BACKUP_INTERVAL_HOURS` | no (default `24`) | How often `run_forever` backs up the DB |
+| `LIVE_SERVER_TOKEN` | required for `live_server.py` | Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `LIVE_SERVER_PORT` | no (default `8899`) | Local-only port the live server binds |
+| `LIVE_SERVER_ALLOWED_ORIGIN` | no (default your Pages origin) | CORS is locked to exactly this origin |
+| `LIVE_SERVER_REFRESH_SECONDS` | no (default `15`) | How often the live server recomputes its cached payload |
+| `CALIBRATION_SNAPSHOT_INTERVAL_MINUTES` | no (default `15`) | How often a calibration trend point is recorded |
+| `MULTI_STRATEGY_TRADING_ENABLED` | no (default `false`) | Separate opt-in for `multi_trader.py`'s automated (unconfirmed) paper trading |
+| `STRATEGY_TIER1_MIN_N` / `STRATEGY_TIER1_MIN_CI_LOWER` | no (default `20` / `0.50`) | Tier-1 stake threshold, see [Automated multi-strategy paper trading](#automated-multi-strategy-paper-trading) |
+| `STRATEGY_TIER2_MIN_N` / `STRATEGY_TIER2_MIN_CI_LOWER` | no (default `50` / `0.55`) | Tier-2 stake threshold |
+| `STRATEGY_TIER1_MULTIPLIER` / `STRATEGY_TIER2_MULTIPLIER` | no (default `2` / `4`) | Stake multipliers at each tier |
+| `MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS` | no (default `5`) | Per-strategy cap on simultaneous open positions |
 
 To create an API key/RSA keypair (needed for `--trade`, using your Kalshi
 **demo** account), see
@@ -176,6 +258,12 @@ python -m src.main --predict
 
 # Also propose paper trades on Kalshi demo, confirmed one at a time
 python -m src.main --trade
+
+# Serve the live dashboard payload locally (needs LIVE_SERVER_TOKEN set)
+python -m src.live_server
+
+# Automated paper trading for momentum/favorite/agreement, no confirmation
+python -m src.multi_trader
 ```
 
 Data lands in the SQLite file at `DB_PATH` (default
@@ -193,19 +281,26 @@ to GitHub. See [Backups](#backups) for how it's protected locally.
 
 ## Safety
 
-- **Paper money only.** `--trade` places orders exclusively against Kalshi's
-  `demo` environment. If `KALSHI_ENV=prod`, `--trade` refuses to start —
-  there is no code path in this repository that can submit a real order.
-- **Every order is confirmed by you, individually, in the terminal.** The
-  bot never places an order without an explicit `y` in response to a printed
+- **Paper money only, everywhere in this repo.** Both `--trade` and
+  `multi_trader.py` place orders exclusively against Kalshi's `demo`
+  environment. If `KALSHI_ENV=prod`, both refuse to start — there is no
+  code path in this repository that can submit a real order.
+- **`--trade` confirms every order individually, in the terminal.** The bot
+  never places an order without an explicit `y` in response to a printed
   proposal (ticker, direction, price, count, cost, current demo balance,
-  model rationale). Declining, or anything other than `y`, skips it.
-- **Three separate gates before any proposal is even shown:**
-  `TRADING_ENABLED=true` in `.env`, the `--trade` CLI flag, and
-  `KALSHI_ENV=demo` — all three, every time.
-- At most one proposal per 15-min market, and it's skipped automatically (no
-  prompt) if your demo balance can't cover it or you already hold a position
-  in that market.
+  model rationale). Declining, or anything other than `y`, skips it. Three
+  separate gates before any proposal is even shown: `TRADING_ENABLED=true`
+  in `.env`, the `--trade` CLI flag, and `KALSHI_ENV=demo`.
+- **`multi_trader.py` is automated — no per-trade confirmation — but still
+  paper-only**, with its own separate opt-in (`MULTI_STRATEGY_TRADING_ENABLED`,
+  independent of `TRADING_ENABLED`) plus the same demo/credentials gates.
+  Position sizing only escalates against real, evidence-based backtest
+  thresholds (see [Automated multi-strategy paper trading](#automated-multi-strategy-paper-trading)) —
+  never "as we feel like it."
+- At most one order per strategy per 15-min market, and it's skipped
+  automatically (no prompt, and for `multi_trader.py` no order at all) if
+  your demo balance can't cover it or that strategy already holds a
+  position in that market.
 - Moving beyond paper trading to real money would be a deliberate, separate
   change to this codebase later — not a config flip.
 
@@ -220,7 +315,10 @@ ruff check .
 
 - Real BRTI data (vs. the Coinbase proxy used now) would need a CF
   Benchmarks license.
-- The prediction model is intentionally simple (driftless, single-feed
-  volatility estimate); `momentum_pct` and orderbook depth are logged but not
-  yet blended in — `report_calibration.py` is how to judge whether they, or
-  anything else, would actually help before changing the formula.
+- `predict()`'s own probability formula is intentionally simple (driftless,
+  single-feed volatility estimate) and still doesn't use momentum or
+  orderbook depth directly — `momentum` is evaluated as its own independent
+  strategy (see backtests), and `orderbook_snapshots` is logged but not yet
+  used by anything. `report_calibration.py` and the dashboard's backtest
+  table are how to judge whether any of this actually helps before changing
+  the core formula.

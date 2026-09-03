@@ -34,6 +34,21 @@ class Settings:
     backup_dir: str
     backup_interval_hours: float
 
+    live_server_port: int
+    live_server_token: str | None
+    live_server_allowed_origin: str
+    live_server_refresh_seconds: int
+    calibration_snapshot_interval_minutes: int
+
+    multi_strategy_trading_enabled: bool
+    strategy_tier1_min_n: int
+    strategy_tier1_min_ci_lower: float
+    strategy_tier2_min_n: int
+    strategy_tier2_min_ci_lower: float
+    strategy_tier1_multiplier: float
+    strategy_tier2_multiplier: float
+    multi_strategy_max_concurrent_positions: int
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.api_key_id and self.private_key_path)
@@ -43,6 +58,13 @@ class Settings:
         """Trading (even paper) requires explicit opt-in, credentials, and the
         demo environment -- this build never places prod/real-money orders."""
         return self.trading_enabled and self.has_credentials and self.env == "demo"
+
+    @property
+    def can_multi_trade(self) -> bool:
+        """Automated multi-strategy paper trading has its own, separate
+        opt-in from --trade's TRADING_ENABLED -- both still require demo +
+        credentials, and prod is always hard-blocked."""
+        return self.multi_strategy_trading_enabled and self.has_credentials and self.env == "demo"
 
 
 def load_settings(env_file: str | None = None) -> Settings:
@@ -70,4 +92,17 @@ def load_settings(env_file: str | None = None) -> Settings:
         trade_window_max_seconds=int(os.getenv("TRADE_WINDOW_MAX_SECONDS", "780")),
         backup_dir=os.getenv("BACKUP_DIR", "data/backups"),
         backup_interval_hours=float(os.getenv("BACKUP_INTERVAL_HOURS", "24")),
+        live_server_port=int(os.getenv("LIVE_SERVER_PORT", "8899")),
+        live_server_token=os.getenv("LIVE_SERVER_TOKEN") or None,
+        live_server_allowed_origin=os.getenv("LIVE_SERVER_ALLOWED_ORIGIN", "https://oribarlevco-cell.github.io"),
+        live_server_refresh_seconds=int(os.getenv("LIVE_SERVER_REFRESH_SECONDS", "15")),
+        calibration_snapshot_interval_minutes=int(os.getenv("CALIBRATION_SNAPSHOT_INTERVAL_MINUTES", "15")),
+        multi_strategy_trading_enabled=os.getenv("MULTI_STRATEGY_TRADING_ENABLED", "false").strip().lower() == "true",
+        strategy_tier1_min_n=int(os.getenv("STRATEGY_TIER1_MIN_N", "20")),
+        strategy_tier1_min_ci_lower=float(os.getenv("STRATEGY_TIER1_MIN_CI_LOWER", "0.50")),
+        strategy_tier2_min_n=int(os.getenv("STRATEGY_TIER2_MIN_N", "50")),
+        strategy_tier2_min_ci_lower=float(os.getenv("STRATEGY_TIER2_MIN_CI_LOWER", "0.55")),
+        strategy_tier1_multiplier=float(os.getenv("STRATEGY_TIER1_MULTIPLIER", "2")),
+        strategy_tier2_multiplier=float(os.getenv("STRATEGY_TIER2_MULTIPLIER", "4")),
+        multi_strategy_max_concurrent_positions=int(os.getenv("MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS", "5")),
     )

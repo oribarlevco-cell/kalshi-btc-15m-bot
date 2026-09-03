@@ -266,3 +266,103 @@ def test_insert_orderbook_snapshot(tmp_path):
     assert row[3] == 33.73
     assert row[4] == 0.0
     storage.close()
+
+
+def test_insert_and_read_calibration_snapshots(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+
+    storage.insert_calibration_snapshot("last", n=10, brier_score=0.15, directional_accuracy=0.7)
+    storage.insert_calibration_snapshot("last", n=15, brier_score=0.12, directional_accuracy=0.73)
+    storage.insert_calibration_snapshot("initial", n=8, brier_score=0.20, directional_accuracy=0.6)
+
+    last_rows = storage.recent_calibration_snapshots("last")
+    assert len(last_rows) == 2
+    assert last_rows[0][1] == 15  # most recent first
+
+    initial_rows = storage.recent_calibration_snapshots("initial")
+    assert len(initial_rows) == 1
+    storage.close()
+
+
+def test_orders_migration_backfills_existing_rows_as_model(tmp_path):
+    db_path = str(tmp_path / "old_orders.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            side TEXT NOT NULL,
+            price REAL NOT NULL,
+            count INTEGER NOT NULL,
+            cost_dollars REAL NOT NULL,
+            client_order_id TEXT,
+            kalshi_order_id TEXT,
+            status TEXT,
+            placed_at_utc TEXT NOT NULL,
+            rationale TEXT,
+            fill_count REAL,
+            average_fill_price REAL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO orders (ticker, direction, side, price, count, cost_dollars, placed_at_utc) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("OLD-TICKER", "yes", "bid", 0.5, 1, 0.5, "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    storage = Storage(db_path)
+
+    row = storage._conn.execute("SELECT strategy FROM orders WHERE ticker = ?", ("OLD-TICKER",)).fetchone()
+    assert row[0] == "model"
+    storage.close()
+
+
+def test_has_order_for_strategy(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    storage.insert_order(
+        {
+            "ticker": "T1",
+            "direction": "yes",
+            "side": "bid",
+            "price": 0.5,
+            "count": 1,
+            "cost_dollars": 0.5,
+            "strategy": "momentum",
+        }
+    )
+
+    assert storage.has_order_for_strategy("T1", "momentum") is True
+    assert storage.has_order_for_strategy("T1", "favorite") is False
+    assert storage.has_order_for_strategy("T2", "momentum") is False
+    storage.close()
+
+
+def test_count_open_positions_for_strategy(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    for ticker in ("T1", "T2", "T3"):
+        storage.insert_order(
+            {
+                "ticker": ticker,
+                "direction": "yes",
+                "side": "bid",
+                "price": 0.5,
+                "count": 1,
+                "cost_dollars": 0.5,
+                "strategy": "momentum",
+            }
+        )
+    # settle T1 -- should no longer count as "open"
+    storage._conn.execute(
+        "INSERT INTO market_lifecycle (ticker, actual_result) VALUES (?, ?)", ("T1", "yes")
+    )
+    storage._conn.commit()
+
+    assert storage.count_open_positions_for_strategy("momentum") == 2
+    assert storage.count_open_positions_for_strategy("favorite") == 0
+    storage.close()
+    storage.close()

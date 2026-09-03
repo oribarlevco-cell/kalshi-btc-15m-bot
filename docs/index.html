@@ -10,8 +10,23 @@
   <main class="wrap">
     <header class="topbar">
       <h1>BTC 15-min market</h1>
-      <span id="readonly-badge" class="badge">read-only</span>
+      <div class="topbar-right">
+        <span id="conn-badge" class="badge badge-muted">static</span>
+        <button id="settings-btn" class="icon-btn" aria-label="Live server settings" title="Live server settings">&#9881;</button>
+      </div>
     </header>
+
+    <div id="settings-panel" class="panel hidden">
+      <div class="panel-label">Live server URL (from your local machine, via ngrok or similar)</div>
+      <input id="live-url-input" type="text" placeholder="https://your-tunnel.ngrok-free.app" />
+      <div class="panel-actions">
+        <button id="live-url-save">connect</button>
+        <button id="live-url-clear" class="secondary">disconnect</button>
+      </div>
+      <div class="panel-hint">
+        Stored only in this browser. When not connected, this page shows the last static snapshot and the analytics sections stay offline.
+      </div>
+    </div>
 
     <div id="card" class="card">
       <div id="loading" class="state-msg">loading market data&hellip;</div>
@@ -38,17 +53,18 @@
           </div>
         </div>
 
-        <div class="prob-block">
-          <div class="prob-header">
-            <span>model probability</span>
-            <span id="prob-label" class="prob-label">&mdash;</span>
+        <div class="mini-stats-row">
+          <div class="mini-stat">
+            <div class="label">BTC vs strike</div>
+            <div id="strike-delta-pct" class="mini-value">&mdash;</div>
           </div>
-          <div class="prob-bar-track">
-            <div id="prob-bar-fill" class="prob-bar-fill" style="width: 50%"></div>
+          <div class="mini-stat">
+            <div class="label">1m / 15m momentum</div>
+            <div id="momentum" class="mini-value">&mdash;</div>
           </div>
-          <div id="prob-note" class="prob-note"></div>
         </div>
 
+        <div class="section-label">market pricing <span class="section-label-sub">(Kalshi's own live bid/ask)</span></div>
         <div class="side-grid">
           <div id="yes-tile" class="side-tile side-yes">
             <div class="side-name">YES</div>
@@ -58,6 +74,17 @@
             <div class="side-name">NO</div>
             <div id="no-price" class="side-price">&mdash;</div>
           </div>
+        </div>
+
+        <div class="section-label">my model's prediction <span class="section-label-sub">(this project's statistical estimate)</span></div>
+        <div class="prob-block">
+          <div class="prob-header">
+            <span id="prob-label" class="prob-label">&mdash;</span>
+          </div>
+          <div class="prob-bar-track">
+            <div id="prob-bar-fill" class="prob-bar-fill" style="width: 50%"></div>
+          </div>
+          <div id="prob-note" class="prob-note"></div>
         </div>
 
         <div class="stats-row">
@@ -75,9 +102,71 @@
       <div id="error" class="state-msg hidden"></div>
     </div>
 
+    <div id="recent-settled-card" class="card section-card hidden">
+      <div class="section-title">recent settled windows</div>
+      <div id="recent-settled-strip" class="pill-strip"></div>
+    </div>
+
+    <div id="backtests-card" class="card section-card hidden">
+      <div class="section-title">strategy backtests</div>
+      <div class="section-subtitle">simulated paper P&amp;L only &middot; not financial advice</div>
+      <div class="table-scroll">
+        <table id="backtests-table" class="data-table">
+          <thead>
+            <tr><th>strategy</th><th class="num">n</th><th class="num">win rate</th><th class="num">avg P&amp;L</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="backtests-note" class="table-note hidden">low sample size (n&lt;20) flagged &mdash; treat as not-yet-reliable</div>
+    </div>
+
+    <div id="pattern-log-card" class="card section-card hidden">
+      <div class="section-title">pattern log</div>
+      <div class="mini-stats-row">
+        <div class="mini-stat">
+          <div class="label">windows settled</div>
+          <div id="pattern-total" class="mini-value">&mdash;</div>
+        </div>
+        <div class="mini-stat">
+          <div class="label">up / down split</div>
+          <div id="pattern-split" class="mini-value">&mdash;</div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="pattern-table" class="data-table">
+          <thead><tr><th>signal</th><th class="num">accuracy (95% CI)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="calibration-card" class="card section-card hidden">
+      <div class="section-title">calibration</div>
+      <div id="calibration-bars" class="calibration-bars"></div>
+      <div class="calibration-summary">
+        <span id="calibration-brier">Brier score: &mdash;</span>
+        <span id="calibration-trend"></span>
+      </div>
+    </div>
+
+    <div class="actions-row">
+      <button id="export-btn">export data (JSON)</button>
+      <button id="clear-btn" class="secondary">clear this browser's view&hellip;</button>
+    </div>
+
+    <div class="disclaimer">
+      Not financial advice. All win rates, confidence intervals, and P&amp;L
+      above are simulated/hypothetical &mdash; no real orders are placed
+      from this page. "Market pricing" is Kalshi's own live bid/ask;
+      "my model's prediction" is this project's own statistical estimate;
+      they are never the same thing. Past accuracy does not guarantee
+      future results. "Clear" only resets this browser's own cached view
+      and cannot touch any real data.
+    </div>
+
     <footer class="footer">
       <span id="updated-at">&mdash;</span>
-      &middot; refreshes automatically, roughly every couple of minutes
     </footer>
   </main>
 
