@@ -4,25 +4,28 @@ import logging
 import math
 
 from config.settings import Settings
+from src.divergence import check_divergence
 from src.kalshi_client import KalshiClient
 from src.markets import MarketSnapshot, get_orderbook_summary
 from src.orders import get_balance, get_positions, place_order
 from src.predictor import Prediction, predict
 from src.price_feed import PriceFeed
 from src.storage import Storage
+from src.trend import fetch_trend_state
 
 logger = logging.getLogger("kalshi_bot")
 
 
 class Trader:
     """Computes real-time predictions for every snapshot, logs each market's
-    open/close lifecycle and orderbook depth for later evaluation, and —
-    only when settings.can_trade is true — proposes at most one
-    paper-trading order per 15-min market and blocks on the user's explicit
-    y/N confirmation before ever calling src.orders.place_order. See
-    README.md for the full set of trading safety gates (env flags,
-    demo-only, per-order confirmation) -- none of that is affected by the
-    logging added here."""
+    open/close lifecycle, orderbook depth, divergence events, and EMA/RSI
+    trend state for later evaluation, and — only when settings.can_trade is
+    true — proposes at most one paper-trading order per 15-min market and
+    blocks on the user's explicit y/N confirmation before ever calling
+    src.orders.place_order. See README.md for the full set of trading safety
+    gates (env flags, demo-only, per-order confirmation) -- none of that is
+    affected by the logging added here. divergence/trend are logged only --
+    predictor.predict() never reads either."""
 
     def __init__(
         self,
@@ -37,6 +40,7 @@ class Trader:
         self._settings = settings
         self._price_feed = price_feed or PriceFeed(url=settings.price_feed_url)
         self._handled_tickers: set[str] = set()
+        self._trend_fetched_tickers: set[str] = set()
         # Trading additionally requires the CLI caller to have explicitly
         # passed --trade -- settings.can_trade (env/creds/demo-only) alone is
         # not enough, so a `--predict`-only run never places orders even if
@@ -60,6 +64,9 @@ class Trader:
         except Exception:
             logger.exception("Failed to fetch/store orderbook for %s", snapshot.ticker)
 
+        self._check_divergence(snapshot)
+        self._maybe_fetch_trend(snapshot.ticker)
+
         if prediction is None:
             return
 
@@ -72,6 +79,39 @@ class Trader:
 
         self._handled_tickers.add(snapshot.ticker)
         self._propose_and_confirm(snapshot, prediction)
+
+    def _check_divergence(self, snapshot: MarketSnapshot) -> None:
+        """Uses the price feed's latest raw tick, not the full Prediction --
+        so this works from the first tick of a window, before enough
+        samples exist for a real prediction."""
+        btc_price = self._price_feed.latest_price()
+        divergence = check_divergence(
+            btc_price, snapshot.floor_strike, snapshot.yes_bid, self._settings.divergence_confident_threshold
+        )
+        if divergence.is_diverging:
+            self._storage.record_divergence_event(
+                snapshot.ticker,
+                btc_price,
+                snapshot.floor_strike,
+                snapshot.yes_bid,
+                divergence.spot_direction,
+                divergence.market_direction,
+            )
+
+    def _maybe_fetch_trend(self, ticker: str) -> None:
+        """Fetched once per new ticker, not every tick -- 15-min EMA/RSI
+        doesn't meaningfully change within a single window, and this avoids
+        hammering Coinbase's candle endpoint every ~20s."""
+        if ticker in self._trend_fetched_tickers:
+            return
+        self._trend_fetched_tickers.add(ticker)
+        try:
+            trend = fetch_trend_state(self._settings.ema_rsi_candles_url)
+        except Exception:
+            logger.exception("Failed to fetch EMA/RSI trend state for %s", ticker)
+            return
+        if trend.state is not None:
+            self._storage.record_trend_state(ticker, trend.state, trend.ema9, trend.ema21, trend.rsi14)
 
     def _should_propose_trade(self, snapshot: MarketSnapshot, prediction: Prediction) -> bool:
         if not self._enable_trading:

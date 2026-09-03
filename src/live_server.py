@@ -13,16 +13,20 @@ from urllib.parse import parse_qs, urlparse
 
 from config.settings import Settings, load_settings
 from src.analytics import build_analytics_payload
+from src.divergence import check_divergence
 from src.report_calibration import brier_score, directional_accuracy, fetch_rows
 from src.storage import Storage
 
 logger = logging.getLogger("kalshi_bot")
 
 
-def build_live_tile(conn: sqlite3.Connection) -> dict[str, Any]:
+def build_live_tile(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
     """Live tile from the most recently-logged snapshot/prediction -- reuses
     whatever the long-running --predict/--trade process already computed,
-    no extra Kalshi/Coinbase calls from the server itself."""
+    no extra Kalshi/Coinbase calls from the server itself. Divergence is
+    recomputed fresh each time (cheap, no I/O); trend_state is read from
+    market_lifecycle, since Trader already fetched+stored it once per
+    ticker -- no point re-fetching from Coinbase here too."""
     conn.row_factory = sqlite3.Row
     snap = conn.execute(
         "SELECT ticker, event_ticker, status, yes_bid, yes_ask, no_bid, no_ask, last_price, volume, "
@@ -61,6 +65,26 @@ def build_live_tile(conn: sqlite3.Connection) -> dict[str, Any]:
         if row_15m and row_15m["btc_price"]:
             momentum_15m = (pred["btc_price"] - row_15m["btc_price"]) / row_15m["btc_price"]
 
+    divergence = check_divergence(
+        pred["btc_price"] if pred else None,
+        pred["floor_strike"] if pred else None,
+        snap["yes_bid"],
+        settings.divergence_confident_threshold,
+    )
+    divergence_dict = (
+        {
+            "is_diverging": True,
+            "spot_direction": divergence.spot_direction,
+            "market_direction": divergence.market_direction,
+        }
+        if divergence.is_diverging
+        else None
+    )
+
+    trend_row = conn.execute(
+        "SELECT trend_state, trend_rsi14 FROM market_lifecycle WHERE ticker = ?", (ticker,)
+    ).fetchone()
+
     return {
         "ticker": ticker,
         "event_ticker": snap["event_ticker"],
@@ -81,6 +105,9 @@ def build_live_tile(conn: sqlite3.Connection) -> dict[str, Any]:
         "sample_count": pred["sample_count"] if pred else None,
         "momentum_1m_pct": momentum_1m,
         "momentum_15m_pct": momentum_15m,
+        "divergence": divergence_dict,
+        "trend_state": trend_row["trend_state"] if trend_row else None,
+        "trend_rsi14": trend_row["trend_rsi14"] if trend_row else None,
     }
 
 
@@ -92,7 +119,7 @@ def _iso_minus(iso_ts: str, seconds: float) -> str:
 def build_payload(settings: Settings) -> dict[str, Any]:
     conn = sqlite3.connect(settings.db_path)
     try:
-        live_tile = build_live_tile(conn)
+        live_tile = build_live_tile(conn, settings)
     finally:
         conn.close()
 

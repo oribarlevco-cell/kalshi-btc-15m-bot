@@ -67,9 +67,38 @@ lifecycle for every market into `market_lifecycle`: open-side (earliest
 prediction, BTC price at open, strike) and close-side (Kalshi's actual
 settled result, final quoted prices, the model's latest pre-close
 prediction) in one row per ticker. Orderbook depth beyond the top bid/ask,
-and two extra signals not yet fed into the prediction formula (realized
-volatility `sigma_per_sqrt_second`, and price momentum `momentum_pct`), are
-logged alongside every prediction for later analysis.
+and signals not yet fed into the prediction formula (realized volatility
+`sigma_per_sqrt_second`, price momentum `momentum_pct`, a 15-min EMA9/EMA21/
+RSI14 trend read, and divergence events — see below), are logged alongside
+every prediction for later analysis.
+
+Two of those logged-only signals get their own accuracy tracking (n, win
+rate, 95% Wilson CI — same math as the backtest table, no P&L since neither
+is a proposed trading strategy):
+
+- **Divergence**: fires when the market's `yes_bid` confidently leans one
+  way (above `DIVERGENCE_CONFIDENT_THRESHOLD`, default 0.65, or below
+  `1 - threshold`) while BTC's spot price sits on the *other* side of the
+  strike. Logged once per market the first time it's seen
+  (`divergence_events`); once the market settles, whether that divergence's
+  implied direction was actually correct gets scored. Shown live as an
+  amber banner on the dashboard.
+- **15-min EMA/RSI trend**: `EMA9` vs `EMA21` crossover plus `RSI14`,
+  computed from Coinbase's 15-min candles (`EMA_RSI_CANDLES_URL`) once per
+  new market (not every tick). Classified bull/bear/neutral using the same
+  rule as the reference implementation this was adapted from
+  (`ema9>ema21 and rsi<65` → bull, `ema9<ema21 and rsi>35` → bear, else
+  neutral). **Not read by `predictor.predict()`** — same rigor as
+  `momentum_pct` — it only ever gets wired into the live model, or offered
+  as a `multi_trader` strategy, after its own settled-history Wilson CI
+  lower bound clears a coinflip, and that would be a separate, explicit
+  change.
+
+Every settled window is also labeled by how it was captured: **observed**
+(watched live — `--predict`/`--trade` was running and saw the market open)
+vs. **backfill** (only ever seen after the fact, via
+`poller.backfill_settled`). Shown as reduced-opacity pills on the dashboard
+and an "observed X / backfilled Y" count in the pattern log.
 
 ```bash
 python -m src.report_calibration            # uses each market's latest pre-close prediction
@@ -97,10 +126,14 @@ every table to CSV, `--keep N` to change retention).
 current market as a mini trading interface, plus everything below it:
 market pricing (Kalshi's own live bid/ask) and the model's prediction shown
 **separately and clearly labeled**, so they're never confused; BTC price vs.
-strike and 1-min/15-min momentum; a countdown; the last 10 settled windows;
-a 4-strategy backtest table (win rate ± 95% confidence interval, average
-P&L, with low-sample-size rows visually flagged); a pattern log; and a
-calibration chart with a trend indicator.
+strike, 1-min/15-min momentum, and the 15-min EMA/RSI trend read; a
+countdown that pulses red (and plays a one-time 3-tone chime) in the final
+60 seconds of a window; a divergence banner when spot and the market
+confidently disagree; the last 10 settled windows (backfilled ones shown at
+reduced opacity); a 4-strategy backtest table (win rate ± 95% confidence
+interval, average P&L, with low-sample-size rows visually flagged); a
+pattern log (including the divergence/trend accuracy rows and an observed
+vs. backfilled count); and a calibration chart with a trend indicator.
 
 **It's read-only.** Nothing on the page places a trade — not the market
 pricing tiles, not any button. "Export" downloads whatever's currently
@@ -241,6 +274,8 @@ credentials (see [Safety](#safety)).
 | `MIN_SAMPLES_FOR_PREDICTION` | no (default `5`) | Minimum price samples before predicting |
 | `MIN_SIGNAL_CONFIDENCE` | no (default `0.15`) | Only propose a trade when `abs(P(yes)-0.5)*2` is at least this |
 | `MOMENTUM_WINDOW_SECONDS` | no (default `300`) | Lookback window for the (currently unused-by-the-formula) momentum signal |
+| `DIVERGENCE_CONFIDENT_THRESHOLD` | no (default `0.65`) | How confident `yes_bid` must be (above this, or below `1-this`) to count as a divergence when it disagrees with spot vs. strike |
+| `EMA_RSI_CANDLES_URL` | no (default Coinbase BTC-USD 15-min candles) | Candle source for the logged-only EMA9/EMA21/RSI14 trend signal |
 | `TRADING_ENABLED` | no (default `false`) | Must be `true`, **in addition to** `KALSHI_ENV=demo` and the `--trade` flag, for any order to ever be proposed |
 | `MAX_ORDER_COST_DOLLARS` | no (default `5.0`) | Caps the size of each proposed paper order |
 | `TRADE_WINDOW_MIN_SECONDS` / `TRADE_WINDOW_MAX_SECONDS` | no (default `60`/`780`) | Only propose trades when time remaining in the 15-min window falls in this range |

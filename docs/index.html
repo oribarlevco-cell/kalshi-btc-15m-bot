@@ -28,6 +28,11 @@
       </div>
     </div>
 
+    <div id="divergence-banner" class="divergence-banner hidden">
+      <span class="divergence-icon">&#9888;</span>
+      <span id="divergence-text"></span>
+    </div>
+
     <div id="card" class="card">
       <div id="loading" class="state-msg">loading market data&hellip;</div>
 
@@ -63,6 +68,8 @@
             <div id="momentum" class="mini-value">&mdash;</div>
           </div>
         </div>
+
+        <div id="trend-line" class="trend-line hidden"></div>
 
         <div class="section-label">market pricing <span class="section-label-sub">(Kalshi's own live bid/ask)</span></div>
         <div class="side-grid">
@@ -133,6 +140,7 @@
           <div id="pattern-split" class="mini-value">&mdash;</div>
         </div>
       </div>
+      <div id="pattern-observed" class="pattern-observed"></div>
       <div class="table-scroll">
         <table id="pattern-table" class="data-table">
           <thead><tr><th>signal</th><th class="num">accuracy (95% CI)</th></tr></thead>

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal
 
 Direction = Literal["yes", "no"]
 StrategyName = Literal["model", "favorite", "momentum", "agreement"]
@@ -27,7 +27,7 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
 
 @dataclass(frozen=True)
 class MarketOutcome:
-    """Everything a strategy needs to decide + score one settled market."""
+    """Everything a strategy/signal needs to decide + score one settled market."""
 
     ticker: str
     actual_result: str  # "yes" / "no"
@@ -37,6 +37,9 @@ class MarketOutcome:
     opening_no_bid: float | None
     opening_no_ask: float | None
     opening_momentum_pct: float | None
+    trend_state: str | None = None  # 'bull' | 'bear' | 'neutral' | None
+    divergence_direction: Direction | None = None  # spot's direction, if a divergence event fired
+    observed: bool = True  # False if this market was only ever backfilled (never seen live)
 
 
 def direction_for_strategy(strategy: StrategyName, outcome: MarketOutcome) -> Direction | None:
@@ -70,6 +73,22 @@ def direction_for_strategy(strategy: StrategyName, outcome: MarketOutcome) -> Di
     raise ValueError(f"unknown strategy {strategy!r}")
 
 
+def trend_direction(outcome: MarketOutcome) -> Direction | None:
+    """Tracked-only signal (see run_signal_accuracy) -- never fed into
+    predict()'s probability formula."""
+    if outcome.trend_state == "bull":
+        return "yes"
+    if outcome.trend_state == "bear":
+        return "no"
+    return None  # neutral, or trend never fetched
+
+
+def divergence_direction(outcome: MarketOutcome) -> Direction | None:
+    """Tracked-only signal -- the spot-vs-strike side at the moment a
+    divergence event fired, if one did for this market."""
+    return outcome.divergence_direction
+
+
 def entry_price_for_direction(outcome: MarketOutcome, direction: Direction) -> float | None:
     price = outcome.opening_yes_ask if direction == "yes" else outcome.opening_no_ask
     return price if price and price > 0 else None
@@ -94,8 +113,9 @@ class StrategyResult:
 
 def fetch_market_outcomes(db_path: str) -> list[MarketOutcome]:
     """One row per settled market, with the earliest snapshot (opening
-    quote) and earliest momentum_pct joined in from the tables that already
-    log them, rather than duplicating that data onto market_lifecycle."""
+    quote), earliest momentum_pct, trend state, and any divergence event
+    joined in from the tables that already log them, rather than
+    duplicating that data onto market_lifecycle."""
     conn = sqlite3.connect(db_path)
     try:
         rows = conn.execute(
@@ -108,8 +128,12 @@ def fetch_market_outcomes(db_path: str) -> list[MarketOutcome]:
                 (SELECT yes_ask FROM snapshots WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1),
                 (SELECT no_bid FROM snapshots WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1),
                 (SELECT no_ask FROM snapshots WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1),
-                (SELECT momentum_pct FROM predictions WHERE ticker = m.ticker ORDER BY computed_at_utc ASC LIMIT 1)
+                (SELECT momentum_pct FROM predictions WHERE ticker = m.ticker ORDER BY computed_at_utc ASC LIMIT 1),
+                m.trend_state,
+                d.spot_direction,
+                CASE WHEN m.opened_at_utc IS NOT NULL THEN 1 ELSE 0 END
             FROM market_lifecycle m
+            LEFT JOIN divergence_events d ON d.ticker = m.ticker
             WHERE m.actual_result IS NOT NULL
             """
         ).fetchall()
@@ -126,6 +150,9 @@ def fetch_market_outcomes(db_path: str) -> list[MarketOutcome]:
             opening_no_bid=r[5],
             opening_no_ask=r[6],
             opening_momentum_pct=r[7],
+            trend_state=r[8],
+            divergence_direction=r[9],
+            observed=bool(r[10]),
         )
         for r in rows
     ]
@@ -171,12 +198,46 @@ def run_backtests(db_path: str | None = None, outcomes: list[MarketOutcome] | No
     return [run_backtest_for_strategy(strategy, outcomes) for strategy in STRATEGY_NAMES]
 
 
+def run_signal_accuracy(
+    name: str, direction_fn: Callable[[MarketOutcome], Direction | None], outcomes: list[MarketOutcome]
+) -> StrategyResult:
+    """Accuracy-only scoring (n, win rate, Wilson 95% CI) for a signal that's
+    tracked but not proposed as a trading strategy -- no entry price/P&L,
+    since these aren't things multi_trader ever bets on."""
+    wins = 0
+    n = 0
+    for outcome in outcomes:
+        direction = direction_fn(outcome)
+        if direction is None:
+            continue
+        n += 1
+        if direction == outcome.actual_result:
+            wins += 1
+
+    win_rate = wins / n if n else 0.0
+    ci_low, ci_high = wilson_interval(wins, n)
+    return StrategyResult(
+        name=name,
+        n=n,
+        wins=wins,
+        win_rate=win_rate,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        avg_pnl=0.0,
+        low_confidence=n < LOW_CONFIDENCE_MIN_N,
+    )
+
+
 @dataclass(frozen=True)
 class PatternLogStats:
     total_settled: int
     up_count: int
     down_count: int
+    observed_count: int
+    backfill_count: int
     strategy_results: list[StrategyResult]
+    trend_stats: StrategyResult
+    divergence_stats: StrategyResult
 
 
 def pattern_log_stats(db_path: str | None = None, outcomes: list[MarketOutcome] | None = None) -> PatternLogStats:
@@ -184,10 +245,15 @@ def pattern_log_stats(db_path: str | None = None, outcomes: list[MarketOutcome] 
         outcomes = fetch_market_outcomes(db_path)
     up_count = sum(1 for o in outcomes if o.actual_result == "yes")
     down_count = sum(1 for o in outcomes if o.actual_result == "no")
+    observed_count = sum(1 for o in outcomes if o.observed)
     strategy_results = run_backtests(outcomes=outcomes)
     return PatternLogStats(
         total_settled=len(outcomes),
         up_count=up_count,
         down_count=down_count,
+        observed_count=observed_count,
+        backfill_count=len(outcomes) - observed_count,
         strategy_results=strategy_results,
+        trend_stats=run_signal_accuracy("trend", trend_direction, outcomes),
+        divergence_stats=run_signal_accuracy("divergence", divergence_direction, outcomes),
     )

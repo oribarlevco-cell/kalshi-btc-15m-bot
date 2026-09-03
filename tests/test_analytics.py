@@ -11,12 +11,13 @@ def test_build_recent_settled(tmp_path):
     db_path = str(tmp_path / "test.db")
     storage = Storage(db_path)
     storage._conn.execute(
-        "INSERT INTO market_lifecycle (ticker, actual_result, closed_logged_at_utc) VALUES (?, ?, ?)",
-        ("T1", "yes", "2026-01-01T00:15:00+00:00"),
+        "INSERT INTO market_lifecycle (ticker, actual_result, closed_logged_at_utc, opened_at_utc) "
+        "VALUES (?, ?, ?, ?)",
+        ("T1", "yes", "2026-01-01T00:15:00+00:00", "2026-01-01T00:00:00+00:00"),
     )
     storage._conn.execute(
         "INSERT INTO market_lifecycle (ticker, actual_result, closed_logged_at_utc) VALUES (?, ?, ?)",
-        ("T2", "no", "2026-01-01T00:30:00+00:00"),
+        ("T2", "no", "2026-01-01T00:30:00+00:00"),  # never opened -> backfill
     )
     storage._conn.commit()
     storage.close()
@@ -27,6 +28,8 @@ def test_build_recent_settled(tmp_path):
 
     assert settled[0]["ticker"] == "T2"  # most recent first
     assert settled[0]["result"] == "no"
+    assert settled[0]["data_quality"] == "backfill"
+    assert settled[1]["data_quality"] == "observed"
     assert len(settled) == 2
 
 
@@ -71,7 +74,11 @@ def test_build_analytics_payload_shape_and_no_live_tile(tmp_path):
     assert "generated_at" in payload
     assert payload["recent_settled"] == []
     assert {b["name"] for b in payload["backtests"]} == {"model", "favorite", "momentum", "agreement"}
-    assert payload["pattern_log"] == {"total_settled": 0, "up_count": 0, "down_count": 0}
+    assert payload["pattern_log"]["total_settled"] == 0
+    assert payload["pattern_log"]["observed_count"] == 0
+    assert payload["pattern_log"]["backfill_count"] == 0
+    assert payload["pattern_log"]["trend"]["name"] == "trend"
+    assert payload["pattern_log"]["divergence"]["name"] == "divergence"
     assert payload["calibration"]["last"]["n"] == 0
     assert payload["calibration_trend"] == []
 

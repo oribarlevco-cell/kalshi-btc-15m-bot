@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import src.dashboard as dashboard_module
 from src.markets import MarketSnapshot
 from src.predictor import Prediction
+from src.trend import TrendState
 from tests.conftest import make_settings
+
+
+@pytest.fixture(autouse=True)
+def _no_real_trend_fetch(monkeypatch):
+    monkeypatch.setattr(dashboard_module, "fetch_trend_state", lambda url: TrendState(None, None, None, None))
 
 
 def _snapshot() -> MarketSnapshot:
@@ -88,6 +96,43 @@ def test_full_payload_with_prediction(monkeypatch):
     assert data["btc_price"] == 77342.78
     assert data["probability_yes"] == 0.64
     assert data["sample_count"] == 5
+    assert data["divergence"] is None  # yes_bid=0.55 isn't confident either way
+    assert data["trend_state"] is None  # no real network call in tests
+
+
+def test_divergence_populated_when_conditions_confidently_disagree(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.yes_bid = 0.20  # confident "no", but spot (77342.78) is above strike (76988.45) -> "yes"
+    monkeypatch.setattr(dashboard_module, "discover_active_market", lambda client, ticker: {"ticker": snapshot.ticker})
+    monkeypatch.setattr(dashboard_module, "get_snapshot", lambda client, ticker: snapshot)
+    monkeypatch.setattr(dashboard_module, "predict", lambda snap, feed, settings: _prediction())
+    monkeypatch.setattr(dashboard_module, "PriceFeed", FakePriceFeed)
+    monkeypatch.setattr(dashboard_module.time, "sleep", lambda s: None)
+    settings = make_settings(min_samples_for_prediction=5)
+
+    data = dashboard_module.build_dashboard_data(settings)
+
+    assert data["divergence"] == {"is_diverging": True, "spot_direction": "yes", "market_direction": "no"}
+
+
+def test_trend_fetch_failure_leaves_trend_fields_none(monkeypatch):
+    snapshot = _snapshot()
+    monkeypatch.setattr(dashboard_module, "discover_active_market", lambda client, ticker: {"ticker": snapshot.ticker})
+    monkeypatch.setattr(dashboard_module, "get_snapshot", lambda client, ticker: snapshot)
+    monkeypatch.setattr(dashboard_module, "predict", lambda snap, feed, settings: _prediction())
+    monkeypatch.setattr(dashboard_module, "PriceFeed", FakePriceFeed)
+    monkeypatch.setattr(dashboard_module.time, "sleep", lambda s: None)
+
+    def failing_fetch(url):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(dashboard_module, "fetch_trend_state", failing_fetch)
+    settings = make_settings(min_samples_for_prediction=5)
+
+    data = dashboard_module.build_dashboard_data(settings)  # should not raise
+
+    assert data["trend_state"] is None
+    assert data["trend_rsi14"] is None
 
 
 def test_missing_prediction_falls_back_to_latest_price(monkeypatch):

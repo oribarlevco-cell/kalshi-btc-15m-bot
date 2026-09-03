@@ -14,6 +14,10 @@
     liveUrlSave: document.getElementById("live-url-save"),
     liveUrlClear: document.getElementById("live-url-clear"),
 
+    card: document.getElementById("card"),
+    divergenceBanner: document.getElementById("divergence-banner"),
+    divergenceText: document.getElementById("divergence-text"),
+
     loading: document.getElementById("loading"),
     content: document.getElementById("content"),
     error: document.getElementById("error"),
@@ -23,6 +27,7 @@
     strikePrice: document.getElementById("strike-price"),
     strikeDeltaPct: document.getElementById("strike-delta-pct"),
     momentum: document.getElementById("momentum"),
+    trendLine: document.getElementById("trend-line"),
     probLabel: document.getElementById("prob-label"),
     probBarFill: document.getElementById("prob-bar-fill"),
     probNote: document.getElementById("prob-note"),
@@ -42,6 +47,7 @@
     patternLogCard: document.getElementById("pattern-log-card"),
     patternTotal: document.getElementById("pattern-total"),
     patternSplit: document.getElementById("pattern-split"),
+    patternObserved: document.getElementById("pattern-observed"),
     patternTableBody: document.querySelector("#pattern-table tbody"),
 
     calibrationCard: document.getElementById("calibration-card"),
@@ -56,6 +62,8 @@
   let closeTimeMs = null;
   let lastPayload = null;
   let liveMode = false;
+  let currentTicker = null;
+  let beepedForTicker = null;
 
   // ---------- formatting helpers ----------
 
@@ -99,11 +107,49 @@
     return Math.round(seconds / 60) + "m ago";
   }
 
+  function playAlertBeep() {
+    // 3 short ascending tones, fired at most once per window (guarded by
+    // beepedForTicker in tickCountdown) so it never repeats mid-window or
+    // gets missed for the next one.
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const tones = [880, 1046.5, 1318.5];
+      tones.forEach(function (freq, i) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const start = ctx.currentTime + i * 0.14;
+        const end = start + 0.12;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, end);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(start);
+        osc.stop(end + 0.02);
+      });
+      setTimeout(function () {
+        ctx.close();
+      }, 600);
+    } catch (e) {
+      /* Web Audio unavailable -- silently skip the beep */
+    }
+  }
+
   function tickCountdown() {
     if (closeTimeMs === null) return;
     const remainingSeconds = (closeTimeMs - Date.now()) / 1000;
     els.countdown.textContent = formatDuration(remainingSeconds);
     els.countdown.classList.toggle("urgent", remainingSeconds <= 30 && remainingSeconds > 0);
+
+    const finalMinute = remainingSeconds <= 60 && remainingSeconds > 0;
+    els.card.classList.toggle("final-minute", finalMinute);
+    if (finalMinute && currentTicker && beepedForTicker !== currentTicker) {
+      beepedForTicker = currentTicker;
+      playAlertBeep();
+    }
   }
 
   // ---------- live tile ----------
@@ -118,12 +164,17 @@
         tile && tile.error === "no_data_yet"
           ? "Waiting for the bot to log its first market snapshot."
           : "No active 15-min BTC market right now — one opens every quarter hour.";
+      els.divergenceBanner.classList.add("hidden");
+      els.card.classList.remove("final-minute");
+      currentTicker = null;
+      closeTimeMs = null;
       return;
     }
 
     els.error.classList.add("hidden");
     els.content.classList.remove("hidden");
 
+    currentTicker = tile.ticker || null;
     els.ticker.textContent = tile.ticker || "";
     els.btcPrice.textContent = formatUsd(tile.btc_price);
     els.strikePrice.textContent = formatUsd(tile.floor_strike);
@@ -144,6 +195,26 @@
       (m1 === null || m1 === undefined ? "—" : formatSignedPct(m1)) +
       " / " +
       (m15 === null || m15 === undefined ? "—" : formatSignedPct(m15));
+
+    if (tile.divergence) {
+      els.divergenceBanner.classList.remove("hidden");
+      const spotLabel = tile.divergence.spot_direction === "yes" ? "YES" : "NO";
+      const marketLabel = tile.divergence.market_direction === "yes" ? "YES" : "NO";
+      els.divergenceText.textContent =
+        "Divergence: BTC's spot price says " + spotLabel + ", but the market is confidently pricing " + marketLabel + ".";
+    } else {
+      els.divergenceBanner.classList.add("hidden");
+    }
+
+    if (tile.trend_state) {
+      const trendLabel = { bull: "Bullish", bear: "Bearish", neutral: "Neutral" }[tile.trend_state] || tile.trend_state;
+      const rsiText = tile.trend_rsi14 === null || tile.trend_rsi14 === undefined ? "" : " (RSI " + Math.round(tile.trend_rsi14) + ")";
+      els.trendLine.textContent = "15m trend: " + trendLabel + rsiText;
+      els.trendLine.className = "trend-line " + (tile.trend_state === "bull" ? "trend-bull" : tile.trend_state === "bear" ? "trend-bear" : "");
+      els.trendLine.classList.remove("hidden");
+    } else {
+      els.trendLine.classList.add("hidden");
+    }
 
     if (tile.probability_yes === null || tile.probability_yes === undefined) {
       els.probLabel.textContent = "gathering data…";
@@ -178,9 +249,10 @@
     recentSettled.forEach(function (item) {
       const pill = document.createElement("span");
       const isUp = item.result === "yes";
-      pill.className = "pill " + (isUp ? "pill-up" : "pill-down");
+      const isBackfill = item.data_quality === "backfill";
+      pill.className = "pill " + (isUp ? "pill-up" : "pill-down") + (isBackfill ? " pill-backfill" : "");
       pill.textContent = isUp ? "U" : "D";
-      pill.title = item.ticker + " — " + (isUp ? "up" : "down");
+      pill.title = item.ticker + " — " + (isUp ? "up" : "down") + (isBackfill ? " (backfilled)" : " (observed live)");
       els.recentSettledStrip.appendChild(pill);
     });
   }
@@ -239,19 +311,37 @@
     const total = patternLog.total_settled || 1;
     els.patternSplit.textContent =
       formatPct(patternLog.up_count / total, 0) + " / " + formatPct(patternLog.down_count / total, 0);
+    els.patternObserved.textContent =
+      "observed live " + patternLog.observed_count + " / backfilled " + patternLog.backfill_count;
 
     const labels = { favorite: "opening favorite", momentum: "momentum direction", model: "my model (initial)" };
     els.patternTableBody.innerHTML = "";
+
+    function appendPatternRow(label, r) {
+      const row = document.createElement("tr");
+      if (r.low_confidence) row.className = "low-confidence";
+      const ciText = formatPct(r.win_rate, 0) + " [" + formatPct(r.ci_low, 0) + "-" + formatPct(r.ci_high, 0) + "]";
+      const ciCell = r.low_confidence ? '<span class="ci-badge low-confidence">' + ciText + "</span>" : ciText;
+      row.innerHTML = "<td>" + label + " (n=" + r.n + ')</td><td class="num">' + ciCell + "</td>";
+      els.patternTableBody.appendChild(row);
+    }
+
     (backtests || [])
       .filter(function (r) {
         return labels[r.name];
       })
       .forEach(function (r) {
-        const row = document.createElement("tr");
-        const ciLabel = formatPct(r.win_rate, 0) + " [" + formatPct(r.ci_low, 0) + "-" + formatPct(r.ci_high, 0) + "]";
-        row.innerHTML = "<td>" + labels[r.name] + '</td><td class="num">' + ciLabel + "</td>";
-        els.patternTableBody.appendChild(row);
+        appendPatternRow(labels[r.name], r);
       });
+
+    // trend/divergence are logged-only signals (not proposed strategies,
+    // not read by the live model) -- see the pattern log labels below.
+    if (patternLog.divergence && patternLog.divergence.n > 0) {
+      appendPatternRow("divergence direction", patternLog.divergence);
+    }
+    if (patternLog.trend && patternLog.trend.n > 0) {
+      appendPatternRow("15m EMA/RSI trend", patternLog.trend);
+    }
   }
 
   function renderCalibration(calibration, trend) {

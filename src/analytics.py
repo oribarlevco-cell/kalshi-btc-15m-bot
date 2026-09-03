@@ -32,11 +32,19 @@ def strategy_result_to_dict(r: StrategyResult) -> dict[str, Any]:
 
 def build_recent_settled(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT ticker, actual_result, closed_logged_at_utc FROM market_lifecycle "
+        "SELECT ticker, actual_result, closed_logged_at_utc, opened_at_utc FROM market_lifecycle "
         "WHERE actual_result IS NOT NULL ORDER BY closed_logged_at_utc DESC LIMIT ?",
         (RECENT_SETTLED_LIMIT,),
     ).fetchall()
-    return [{"ticker": r[0], "result": r[1], "closed_at_utc": r[2]} for r in rows]
+    return [
+        {
+            "ticker": r[0],
+            "result": r[1],
+            "closed_at_utc": r[2],
+            "data_quality": "observed" if r[3] is not None else "backfill",
+        }
+        for r in rows
+    ]
 
 
 def build_calibration(db_path: str) -> dict[str, Any]:
@@ -99,6 +107,10 @@ def build_analytics_payload(settings: Settings) -> dict[str, Any]:
             "total_settled": pattern_log.total_settled,
             "up_count": pattern_log.up_count,
             "down_count": pattern_log.down_count,
+            "observed_count": pattern_log.observed_count,
+            "backfill_count": pattern_log.backfill_count,
+            "trend": strategy_result_to_dict(pattern_log.trend_stats),
+            "divergence": strategy_result_to_dict(pattern_log.divergence_stats),
         },
         "calibration": calibration,
         "calibration_trend": list(reversed(trend_last)),

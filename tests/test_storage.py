@@ -365,4 +365,115 @@ def test_count_open_positions_for_strategy(tmp_path):
     assert storage.count_open_positions_for_strategy("momentum") == 2
     assert storage.count_open_positions_for_strategy("favorite") == 0
     storage.close()
+
+
+def test_market_lifecycle_migration_adds_trend_columns_without_data_loss(tmp_path):
+    db_path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(db_path)
+    # Pre-Phase-6 shape (everything through Phase 5, missing only trend_*).
+    conn.execute(
+        """
+        CREATE TABLE market_lifecycle (
+            ticker TEXT PRIMARY KEY,
+            event_ticker TEXT,
+            series_ticker TEXT,
+            floor_strike REAL,
+            close_time_utc TEXT,
+            opened_at_utc TEXT,
+            btc_price_at_open REAL,
+            initial_probability_yes REAL,
+            initial_confidence REAL,
+            initial_sample_count INTEGER,
+            closed_logged_at_utc TEXT,
+            actual_result TEXT,
+            settlement_value REAL,
+            final_yes_bid REAL,
+            final_yes_ask REAL,
+            final_no_bid REAL,
+            final_no_ask REAL,
+            final_last_price REAL,
+            final_btc_price REAL,
+            last_probability_yes REAL,
+            last_confidence REAL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO market_lifecycle (ticker, floor_strike, initial_probability_yes) VALUES (?, ?, ?)",
+        ("OLD-TICKER", 50000.0, 0.6),
+    )
+    conn.commit()
+    conn.close()
+
+    storage = Storage(db_path)
+
+    cols = {row[1] for row in storage._conn.execute("PRAGMA table_info(market_lifecycle)").fetchall()}
+    assert {"trend_state", "trend_ema9", "trend_ema21", "trend_rsi14"} <= cols
+
+    row = storage._conn.execute(
+        "SELECT floor_strike, initial_probability_yes, trend_state FROM market_lifecycle WHERE ticker = ?",
+        ("OLD-TICKER",),
+    ).fetchone()
+    assert row == (50000.0, 0.6, None)
+    storage.close()
+
+
+def test_record_divergence_event_only_keeps_first_occurrence(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+
+    storage.record_divergence_event("T1", 51000.0, 50000.0, 0.20, "yes", "no")
+    storage.record_divergence_event("T1", 52000.0, 50000.0, 0.10, "yes", "no")  # should be ignored
+
+    row = storage._conn.execute(
+        "SELECT btc_price, spot_direction FROM divergence_events WHERE ticker = ?", ("T1",)
+    ).fetchone()
+    assert row == (51000.0, "yes")
+    count = storage._conn.execute("SELECT COUNT(*) FROM divergence_events WHERE ticker = ?", ("T1",)).fetchone()[0]
+    assert count == 1
+    storage.close()
+
+
+def test_finalize_divergence_event_sets_result_once(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    storage.record_divergence_event("T1", 51000.0, 50000.0, 0.20, "yes", "no")
+
+    storage.finalize_divergence_event("T1", "yes")
+    storage.finalize_divergence_event("T1", "no")  # already finalized -- should not overwrite
+
+    row = storage._conn.execute("SELECT actual_result FROM divergence_events WHERE ticker = ?", ("T1",)).fetchone()
+    assert row[0] == "yes"
+    storage.close()
+
+
+def test_finalize_divergence_event_noop_when_no_event(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    storage.finalize_divergence_event("NEVER-DIVERGED", "yes")  # should not raise or insert anything
+    count = storage._conn.execute("SELECT COUNT(*) FROM divergence_events").fetchone()[0]
+    assert count == 0
+    storage.close()
+
+
+def test_record_trend_state_fills_once(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    storage._conn.execute("INSERT INTO market_lifecycle (ticker) VALUES (?)", ("T1",))
+    storage._conn.commit()
+
+    storage.record_trend_state("T1", "bull", 100.5, 99.2, 58.0)
+    storage.record_trend_state("T1", "bear", 1.0, 2.0, 3.0)  # should not overwrite
+
+    row = storage._conn.execute(
+        "SELECT trend_state, trend_ema9, trend_ema21, trend_rsi14 FROM market_lifecycle WHERE ticker = ?", ("T1",)
+    ).fetchone()
+    assert row == ("bull", 100.5, 99.2, 58.0)
+    storage.close()
+
+
+def test_trend_state_for(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+    storage._conn.execute("INSERT INTO market_lifecycle (ticker) VALUES (?)", ("T1",))
+    storage._conn.commit()
+    storage.record_trend_state("T1", "bear", 1.0, 2.0, 40.0)
+
+    assert storage.trend_state_for("T1") == ("bear", 40.0)
+    assert storage.trend_state_for("UNKNOWN") is None
     storage.close()

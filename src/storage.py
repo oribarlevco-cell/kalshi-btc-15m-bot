@@ -121,6 +121,19 @@ CREATE TABLE IF NOT EXISTS calibration_snapshots (
     directional_accuracy REAL
 );
 CREATE INDEX IF NOT EXISTS idx_calibration_snapshots_which ON calibration_snapshots(which, computed_at_utc);
+
+CREATE TABLE IF NOT EXISTS divergence_events (
+    ticker TEXT PRIMARY KEY,
+    detected_at_utc TEXT NOT NULL,
+    btc_price REAL,
+    floor_strike REAL,
+    yes_bid REAL,
+    spot_direction TEXT,
+    market_direction TEXT,
+    actual_result TEXT,
+    finalized_at_utc TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_divergence_result ON divergence_events(actual_result);
 """
 
 
@@ -151,6 +164,18 @@ class Storage:
             # Every order placed before this column existed came from the
             # manual, model-confirmed --trade flow.
             self._conn.execute("UPDATE orders SET strategy = 'model' WHERE strategy IS NULL")
+
+        existing_lifecycle_cols = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(market_lifecycle)").fetchall()
+        }
+        for column, decl in (
+            ("trend_state", "TEXT"),
+            ("trend_ema9", "REAL"),
+            ("trend_ema21", "REAL"),
+            ("trend_rsi14", "REAL"),
+        ):
+            if column not in existing_lifecycle_cols:
+                self._conn.execute(f"ALTER TABLE market_lifecycle ADD COLUMN {column} {decl}")
 
         self._conn.commit()
 
@@ -413,6 +438,69 @@ class Storage:
             "SELECT momentum_pct FROM predictions WHERE ticker = ? ORDER BY computed_at_utc ASC LIMIT 1", (ticker,)
         ).fetchone()
         return row[0] if row else None
+
+    def record_divergence_event(
+        self,
+        ticker: str,
+        btc_price: float | None,
+        floor_strike: float | None,
+        yes_bid: float | None,
+        spot_direction: str,
+        market_direction: str,
+    ) -> None:
+        """Logged once per ticker (INSERT OR IGNORE) -- only the first
+        divergence observed in a window is kept, matching the "did the
+        divergence direction end up correct" question we want to answer."""
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO divergence_events (
+                ticker, detected_at_utc, btc_price, floor_strike, yes_bid, spot_direction, market_direction
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ticker,
+                datetime.now(timezone.utc).isoformat(),
+                btc_price,
+                floor_strike,
+                yes_bid,
+                spot_direction,
+                market_direction,
+            ),
+        )
+        self._conn.commit()
+
+    def finalize_divergence_event(self, ticker: str, actual_result: str) -> None:
+        self._conn.execute(
+            """
+            UPDATE divergence_events SET actual_result = ?, finalized_at_utc = ?
+            WHERE ticker = ? AND actual_result IS NULL
+            """,
+            (actual_result, datetime.now(timezone.utc).isoformat(), ticker),
+        )
+        self._conn.commit()
+
+    def record_trend_state(
+        self, ticker: str, trend_state: str | None, ema9: float | None, ema21: float | None, rsi14: float | None
+    ) -> None:
+        """Filled in once per market (WHERE trend_state IS NULL), the same
+        fill-once pattern as fill_initial_prediction_if_missing -- Trader
+        only fetches this once per new ticker."""
+        self._conn.execute(
+            """
+            UPDATE market_lifecycle
+            SET trend_state = ?, trend_ema9 = ?, trend_ema21 = ?, trend_rsi14 = ?
+            WHERE ticker = ? AND trend_state IS NULL
+            """,
+            (trend_state, ema9, ema21, rsi14, ticker),
+        )
+        self._conn.commit()
+
+    def trend_state_for(self, ticker: str) -> tuple[str | None, float | None] | None:
+        """(trend_state, trend_rsi14) for the live tile -- None if not yet fetched."""
+        row = self._conn.execute(
+            "SELECT trend_state, trend_rsi14 FROM market_lifecycle WHERE ticker = ?", (ticker,)
+        ).fetchone()
+        return (row[0], row[1]) if row else None
 
     def insert_calibration_snapshot(
         self, which: str, n: int, brier_score: float | None, directional_accuracy: float | None

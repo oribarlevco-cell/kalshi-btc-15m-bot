@@ -149,27 +149,26 @@ def test_run_backtests_returns_all_four_strategies():
 
 
 def _seed_db(tmp_path):
+    from src.storage import Storage
+
     db_path = str(tmp_path / "test.db")
+    Storage(db_path).close()  # creates the real, current schema
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE market_lifecycle (ticker TEXT PRIMARY KEY, actual_result TEXT, initial_probability_yes REAL)"
-    )
-    conn.execute(
-        "CREATE TABLE snapshots (ticker TEXT, pulled_at_utc TEXT, yes_bid REAL, yes_ask REAL, no_bid REAL, no_ask REAL)"
-    )
-    conn.execute("CREATE TABLE predictions (ticker TEXT, computed_at_utc TEXT, momentum_pct REAL)")
 
     conn.execute(
-        "INSERT INTO market_lifecycle (ticker, actual_result, initial_probability_yes) VALUES (?, ?, ?)",
-        ("T1", "yes", 0.7),
+        "INSERT INTO market_lifecycle (ticker, actual_result, initial_probability_yes, opened_at_utc) "
+        "VALUES (?, ?, ?, ?)",
+        ("T1", "yes", 0.7, "2026-01-01T00:00:00+00:00"),
+    )
+    snapshot_cols = "ticker, pulled_at_utc, close_time_utc, yes_bid, yes_ask, no_bid, no_ask"
+    conn.execute(
+        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("T1", "2026-01-01T00:00:00+00:00", "2026-01-01T00:15:00+00:00", 0.55, 0.60, 0.38, 0.45),
     )
     conn.execute(
-        "INSERT INTO snapshots (ticker, pulled_at_utc, yes_bid, yes_ask, no_bid, no_ask) VALUES (?, ?, ?, ?, ?, ?)",
-        ("T1", "2026-01-01T00:00:00+00:00", 0.55, 0.60, 0.38, 0.45),
-    )
-    conn.execute(
-        "INSERT INTO snapshots (ticker, pulled_at_utc, yes_bid, yes_ask, no_bid, no_ask) VALUES (?, ?, ?, ?, ?, ?)",
-        ("T1", "2026-01-01T00:00:20+00:00", 0.60, 0.65, 0.33, 0.40),  # later -- should NOT be picked as opening
+        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        # later -- should NOT be picked as opening
+        ("T1", "2026-01-01T00:00:20+00:00", "2026-01-01T00:15:00+00:00", 0.60, 0.65, 0.33, 0.40),
     )
     conn.execute(
         "INSERT INTO predictions (ticker, computed_at_utc, momentum_pct) VALUES (?, ?, ?)",
@@ -191,18 +190,15 @@ def test_fetch_market_outcomes_uses_earliest_snapshot_and_prediction(tmp_path):
     assert outcome.opening_yes_bid == 0.55  # the earlier snapshot, not the later one
     assert outcome.opening_yes_ask == 0.60
     assert outcome.opening_momentum_pct == 0.02
+    assert outcome.observed is True
 
 
 def test_fetch_market_outcomes_excludes_unsettled(tmp_path):
+    from src.storage import Storage
+
     db_path = str(tmp_path / "test.db")
+    Storage(db_path).close()
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE market_lifecycle (ticker TEXT PRIMARY KEY, actual_result TEXT, initial_probability_yes REAL)"
-    )
-    conn.execute(
-        "CREATE TABLE snapshots (ticker TEXT, pulled_at_utc TEXT, yes_bid REAL, yes_ask REAL, no_bid REAL, no_ask REAL)"
-    )
-    conn.execute("CREATE TABLE predictions (ticker TEXT, computed_at_utc TEXT, momentum_pct REAL)")
     conn.execute(
         "INSERT INTO market_lifecycle (ticker, actual_result, initial_probability_yes) VALUES (?, NULL, ?)",
         ("UNSETTLED", 0.6),

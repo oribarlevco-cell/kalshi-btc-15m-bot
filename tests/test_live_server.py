@@ -104,9 +104,10 @@ def _seed_market_data(db_path: str) -> None:
 def test_build_live_tile_reads_latest_snapshot_and_prediction(tmp_path):
     db_path = str(tmp_path / "test.db")
     _seed_market_data(db_path)
+    settings = make_settings(db_path=db_path)
 
     conn = sqlite3.connect(db_path)
-    tile = build_live_tile(conn)
+    tile = build_live_tile(conn, settings)
     conn.close()
 
     assert tile["ticker"] == "T1"
@@ -114,17 +115,42 @@ def test_build_live_tile_reads_latest_snapshot_and_prediction(tmp_path):
     assert tile["floor_strike"] == 50000.0
     assert tile["probability_yes"] == 0.6
     assert tile["momentum_1m_pct"] is not None  # a prediction ~2 min ago exists
+    assert tile["divergence"] is None  # yes_bid=0.55 isn't confident either way
+    assert tile["trend_state"] is None  # never fetched in this fixture
 
 
 def test_build_live_tile_no_data_yet(tmp_path):
     db_path = str(tmp_path / "test.db")
     Storage(db_path).close()
+    settings = make_settings(db_path=db_path)
 
     conn = sqlite3.connect(db_path)
-    tile = build_live_tile(conn)
+    tile = build_live_tile(conn, settings)
     conn.close()
 
     assert tile == {"error": "no_data_yet"}
+
+
+def test_build_live_tile_divergence_and_trend(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    _seed_market_data(db_path)
+    storage = Storage(db_path)
+    storage._conn.execute("UPDATE snapshots SET yes_bid = 0.20 WHERE ticker = 'T1'")  # confident "no"
+    storage._conn.execute("INSERT INTO market_lifecycle (ticker) VALUES ('T1')")
+    storage._conn.commit()
+    storage.record_trend_state("T1", "bull", 100.0, 99.0, 55.0)
+    storage.close()
+    settings = make_settings(db_path=db_path)
+
+    conn = sqlite3.connect(db_path)
+    tile = build_live_tile(conn, settings)
+    conn.close()
+
+    # btc_price (50100) is above floor_strike (50000) -> spot says "yes",
+    # but yes_bid=0.20 is a confident "no".
+    assert tile["divergence"] == {"is_diverging": True, "spot_direction": "yes", "market_direction": "no"}
+    assert tile["trend_state"] == "bull"
+    assert tile["trend_rsi14"] == 55.0
 
 
 def test_build_payload_shape(tmp_path):

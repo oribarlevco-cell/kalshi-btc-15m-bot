@@ -42,6 +42,8 @@ def make_settings(**overrides) -> Settings:
         multi_strategy_max_concurrent_positions=5,
         analytics_publish_enabled=False,
         analytics_publish_interval_minutes=10,
+        divergence_confident_threshold=0.65,
+        ema_rsi_candles_url="https://example.invalid/candles",
     )
     defaults.update(overrides)
     return Settings(**defaults)

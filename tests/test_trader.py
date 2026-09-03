@@ -2,20 +2,30 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import src.trader as trader_module
 from src.markets import MarketSnapshot
 from src.predictor import Prediction
 from src.trader import Trader
+from src.trend import TrendState
 from tests.conftest import make_settings
 
 
-def _snapshot(ticker="KXBTC15M-TEST", minutes_remaining=5.0, yes_ask=0.60, no_ask=0.45) -> MarketSnapshot:
+@pytest.fixture(autouse=True)
+def _no_real_trend_fetch(monkeypatch):
+    """Every test gets a no-op trend fetch by default (no real network call);
+    tests that care about trend-fetching behavior override this themselves."""
+    monkeypatch.setattr(trader_module, "fetch_trend_state", lambda url: TrendState(None, None, None, None))
+
+
+def _snapshot(ticker="KXBTC15M-TEST", minutes_remaining=5.0, yes_ask=0.60, no_ask=0.45, yes_bid=0.55) -> MarketSnapshot:
     now = datetime.now(timezone.utc)
     return MarketSnapshot(
         ticker=ticker,
         event_ticker="EVT",
         status="open",
-        yes_bid=0.55,
+        yes_bid=yes_bid,
         yes_ask=yes_ask,
         no_bid=0.40,
         no_ask=no_ask,
@@ -43,8 +53,14 @@ def _high_confidence_prediction(ticker="KXBTC15M-TEST", probability_yes=0.9) -> 
 
 
 class FakePriceFeed:
+    def __init__(self, price=51000.0):
+        self._price = price
+
     def fetch_and_record(self, session=None):
         pass
+
+    def latest_price(self):
+        return self._price
 
 
 class FakeStorage:
@@ -54,6 +70,8 @@ class FakeStorage:
         self.opened_markets = []
         self.filled_initial = []
         self.orderbook_snapshots = []
+        self.divergence_events = []
+        self.trend_states = []
 
     def insert_prediction(self, prediction):
         self.predictions.append(prediction)
@@ -69,6 +87,12 @@ class FakeStorage:
 
     def insert_orderbook_snapshot(self, summary):
         self.orderbook_snapshots.append(summary)
+
+    def record_divergence_event(self, ticker, btc_price, floor_strike, yes_bid, spot_direction, market_direction):
+        self.divergence_events.append((ticker, btc_price, floor_strike, yes_bid, spot_direction, market_direction))
+
+    def record_trend_state(self, ticker, trend_state, ema9, ema21, rsi14):
+        self.trend_states.append((ticker, trend_state, ema9, ema21, rsi14))
 
 
 class FakeClient:
@@ -217,3 +241,81 @@ def test_low_confidence_prediction_is_not_traded(monkeypatch):
     t.on_snapshot(_snapshot())
 
     assert storage.orders == []
+
+
+def test_divergence_logged_when_market_confidently_disagrees_with_spot(monkeypatch):
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)  # prediction not needed for this check
+    storage = FakeStorage()
+    settings = make_settings()
+    # spot (51000) is above strike (50000) -> implies yes, but yes_bid=0.20 is a confident "no"
+    price_feed = FakePriceFeed(price=51000.0)
+    t = Trader(FakeClient(), storage, settings, price_feed=price_feed, enable_trading=False)
+
+    t.on_snapshot(_snapshot(yes_bid=0.20))
+
+    assert len(storage.divergence_events) == 1
+    ticker, btc_price, floor_strike, yes_bid, spot_direction, market_direction = storage.divergence_events[0]
+    assert spot_direction == "yes"
+    assert market_direction == "no"
+
+
+def test_divergence_not_logged_when_not_confident(monkeypatch):
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)
+    storage = FakeStorage()
+    settings = make_settings()
+    price_feed = FakePriceFeed(price=51000.0)
+    t = Trader(FakeClient(), storage, settings, price_feed=price_feed, enable_trading=False)
+
+    t.on_snapshot(_snapshot(yes_bid=0.55))  # not confident either way
+
+    assert storage.divergence_events == []
+
+
+def test_trend_fetched_once_per_ticker(monkeypatch):
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)
+    calls = []
+
+    def fake_fetch(url):
+        calls.append(url)
+        return TrendState("bull", 100.0, 99.0, 55.0)
+
+    monkeypatch.setattr(trader_module, "fetch_trend_state", fake_fetch)
+    storage = FakeStorage()
+    settings = make_settings()
+    t = Trader(FakeClient(), storage, settings, price_feed=FakePriceFeed(), enable_trading=False)
+
+    snapshot = _snapshot()
+    t.on_snapshot(snapshot)
+    t.on_snapshot(snapshot)  # second tick, same ticker -- should not re-fetch
+
+    assert len(calls) == 1
+    assert len(storage.trend_states) == 1
+    assert storage.trend_states[0] == (snapshot.ticker, "bull", 100.0, 99.0, 55.0)
+
+
+def test_trend_not_stored_when_state_unavailable(monkeypatch):
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)
+    monkeypatch.setattr(trader_module, "fetch_trend_state", lambda url: TrendState(None, None, None, None))
+    storage = FakeStorage()
+    settings = make_settings()
+    t = Trader(FakeClient(), storage, settings, price_feed=FakePriceFeed(), enable_trading=False)
+
+    t.on_snapshot(_snapshot())
+
+    assert storage.trend_states == []
+
+
+def test_trend_fetch_failure_does_not_crash_on_snapshot(monkeypatch):
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)
+
+    def failing_fetch(url):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(trader_module, "fetch_trend_state", failing_fetch)
+    storage = FakeStorage()
+    settings = make_settings()
+    t = Trader(FakeClient(), storage, settings, price_feed=FakePriceFeed(), enable_trading=False)
+
+    t.on_snapshot(_snapshot())  # should not raise
+
+    assert storage.trend_states == []

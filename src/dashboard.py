@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import Settings, load_settings
+from src.divergence import check_divergence
 from src.kalshi_client import KalshiClient
 from src.markets import discover_active_market, get_snapshot
 from src.predictor import predict
 from src.price_feed import PriceFeed
+from src.trend import fetch_trend_state
 
 logger = logging.getLogger("kalshi_bot")
 
@@ -48,6 +50,26 @@ def build_dashboard_data(settings: Settings) -> dict[str, Any]:
             time.sleep(SAMPLE_SPACING_SECONDS)
 
     prediction = predict(snapshot, price_feed, settings)
+    btc_price = prediction.btc_price if prediction else price_feed.latest_price()
+
+    divergence = check_divergence(
+        btc_price, snapshot.floor_strike, snapshot.yes_bid, settings.divergence_confident_threshold
+    )
+    divergence_dict = (
+        {
+            "is_diverging": True,
+            "spot_direction": divergence.spot_direction,
+            "market_direction": divergence.market_direction,
+        }
+        if divergence.is_diverging
+        else None
+    )
+
+    try:
+        trend = fetch_trend_state(settings.ema_rsi_candles_url)
+    except Exception:
+        logger.exception("Failed to fetch EMA/RSI trend state")
+        trend = None
 
     return {
         "generated_at": generated_at,
@@ -65,11 +87,14 @@ def build_dashboard_data(settings: Settings) -> dict[str, Any]:
         "last_price": snapshot.last_price,
         "volume": snapshot.volume,
         "open_interest": snapshot.open_interest,
-        "btc_price": prediction.btc_price if prediction else price_feed.latest_price(),
+        "btc_price": btc_price,
         "probability_yes": prediction.probability_yes if prediction else None,
         "confidence": prediction.confidence if prediction else None,
         "sample_count": price_feed.sample_count,
         "rationale": prediction.rationale if prediction else None,
+        "divergence": divergence_dict,
+        "trend_state": trend.state if trend else None,
+        "trend_rsi14": trend.rsi14 if trend else None,
     }
 
 

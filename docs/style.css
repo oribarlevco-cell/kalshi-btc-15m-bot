@@ -147,6 +147,40 @@ body {
   padding: 24px;
 }
 
+.divergence-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  border: 1px solid var(--amber-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.divergence-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+@keyframes final-minute-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--red-border);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px var(--red-border);
+  }
+}
+
+.card.final-minute {
+  border-color: var(--red-text);
+  animation: final-minute-pulse 1.1s ease-in-out infinite;
+}
+
 .state-msg {
   text-align: center;
   color: var(--text-muted);
@@ -344,6 +378,20 @@ body {
   font-weight: 600;
 }
 
+.trend-line {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: -10px 0 20px;
+}
+
+.trend-line.trend-bull {
+  color: var(--green-text);
+}
+
+.trend-line.trend-bear {
+  color: var(--red-text);
+}
+
 .section-label {
   font-size: 11px;
   color: var(--text-muted);
@@ -396,6 +444,10 @@ body {
 .pill-down {
   background: var(--red-bg);
   color: var(--red-text);
+}
+
+.pill-backfill {
+  opacity: 0.5;
 }
 
 .table-scroll {
@@ -486,6 +538,12 @@ body {
   justify-content: space-between;
   font-size: 12px;
   margin-top: 6px;
+}
+
+.pattern-observed {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -6px 0 12px;
 }
 
 .trend-up {

@@ -9,6 +9,7 @@ PROD_BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 DEMO_BASE_URL = "https://external-api.demo.kalshi.co/trade-api/v2"
 
 DEFAULT_PRICE_FEED_URL = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
+DEFAULT_EMA_RSI_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900"
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,9 @@ class Settings:
 
     analytics_publish_enabled: bool
     analytics_publish_interval_minutes: float
+
+    divergence_confident_threshold: float
+    ema_rsi_candles_url: str
 
     @property
     def has_credentials(self) -> bool:
@@ -110,4 +114,6 @@ def load_settings(env_file: str | None = None) -> Settings:
         multi_strategy_max_concurrent_positions=int(os.getenv("MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS", "5")),
         analytics_publish_enabled=os.getenv("ANALYTICS_PUBLISH_ENABLED", "false").strip().lower() == "true",
         analytics_publish_interval_minutes=float(os.getenv("ANALYTICS_PUBLISH_INTERVAL_MINUTES", "10")),
+        divergence_confident_threshold=float(os.getenv("DIVERGENCE_CONFIDENT_THRESHOLD", "0.65")),
+        ema_rsi_candles_url=os.getenv("EMA_RSI_CANDLES_URL", DEFAULT_EMA_RSI_CANDLES_URL),
     )

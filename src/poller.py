@@ -52,6 +52,12 @@ def backfill_settled(client: KalshiClient, storage: Storage, settings: Settings,
     for payload in get_settled_history(client, settings.series_ticker, min_close_ts=min_close_ts):
         storage.upsert_settled_outcome(payload)
         storage.finalize_market_lifecycle(payload, settings.series_ticker)
+
+        settlement_value = payload.get("settlement_value_dollars")
+        settlement_value = float(settlement_value) if settlement_value not in (None, "") else None
+        result = payload.get("result") or ("yes" if (settlement_value or 0) > 0 else "no")
+        storage.finalize_divergence_event(payload["ticker"], result)
+
         count += 1
     if count:
         logger.info("Backfilled %d settled market(s)", count)
