@@ -1,0 +1,4 @@
+# Generated backtest output and the downloaded Binance price cache --
+# scoped to this folder so the repo's own .gitignore never needs editing.
+results/
+data/
