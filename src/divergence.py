@@ -18,13 +18,23 @@ def check_divergence(
     floor_strike: float | None,
     yes_bid: float | None,
     confident_threshold: float = 0.65,
+    volume: float | None = None,
+    min_volume: float = 0.0,
 ) -> DivergenceCheck:
     """Flags disagreement between BTC's raw spot price (vs. the window's
     strike) and the market's own confident lean (yes_bid far from a
     coinflip). Note: Kalshi settles on a 60s BRTI average at close, not raw
     spot -- a divergence isn't proof the market is wrong, just a naturally
-    interesting disagreement to track and evaluate over time."""
+    interesting disagreement to track and evaluate over time.
+
+    A brand-new market's yes_bid is often an uninformative placeholder
+    (e.g. 0.01 with zero volume) before real trading begins -- that's not
+    the market being confidently wrong, it's the market not having priced
+    the thing yet. min_volume filters those out; pass volume=None/0 with
+    min_volume=0 (the default) to skip this check entirely."""
     if btc_price is None or floor_strike is None or yes_bid is None:
+        return DivergenceCheck(False, None, None)
+    if min_volume > 0 and (volume is None or volume < min_volume):
         return DivergenceCheck(False, None, None)
 
     spot_direction: Direction = "yes" if btc_price > floor_strike else "no"

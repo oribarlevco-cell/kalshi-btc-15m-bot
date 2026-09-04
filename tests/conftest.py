@@ -43,6 +43,7 @@ def make_settings(**overrides) -> Settings:
         analytics_publish_enabled=False,
         analytics_publish_interval_minutes=10,
         divergence_confident_threshold=0.65,
+        divergence_min_volume=0.0,
         ema_rsi_candles_url="https://example.invalid/candles",
     )
     defaults.update(overrides)

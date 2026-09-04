@@ -115,6 +115,22 @@ def test_divergence_populated_when_conditions_confidently_disagree(monkeypatch):
     assert data["divergence"] == {"is_diverging": True, "spot_direction": "yes", "market_direction": "no"}
 
 
+def test_divergence_not_populated_when_market_illiquid(monkeypatch):
+    snapshot = _snapshot()
+    snapshot.yes_bid = 0.20
+    snapshot.volume = 0
+    monkeypatch.setattr(dashboard_module, "discover_active_market", lambda client, ticker: {"ticker": snapshot.ticker})
+    monkeypatch.setattr(dashboard_module, "get_snapshot", lambda client, ticker: snapshot)
+    monkeypatch.setattr(dashboard_module, "predict", lambda snap, feed, settings: _prediction())
+    monkeypatch.setattr(dashboard_module, "PriceFeed", FakePriceFeed)
+    monkeypatch.setattr(dashboard_module.time, "sleep", lambda s: None)
+    settings = make_settings(min_samples_for_prediction=5, divergence_min_volume=10.0)
+
+    data = dashboard_module.build_dashboard_data(settings)
+
+    assert data["divergence"] is None
+
+
 def test_trend_fetch_failure_leaves_trend_fields_none(monkeypatch):
     snapshot = _snapshot()
     monkeypatch.setattr(dashboard_module, "discover_active_market", lambda client, ticker: {"ticker": snapshot.ticker})

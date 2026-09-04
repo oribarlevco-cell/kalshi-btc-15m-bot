@@ -19,7 +19,9 @@ def _no_real_trend_fetch(monkeypatch):
     monkeypatch.setattr(trader_module, "fetch_trend_state", lambda url: TrendState(None, None, None, None))
 
 
-def _snapshot(ticker="KXBTC15M-TEST", minutes_remaining=5.0, yes_ask=0.60, no_ask=0.45, yes_bid=0.55) -> MarketSnapshot:
+def _snapshot(
+    ticker="KXBTC15M-TEST", minutes_remaining=5.0, yes_ask=0.60, no_ask=0.45, yes_bid=0.55, volume=100
+) -> MarketSnapshot:
     now = datetime.now(timezone.utc)
     return MarketSnapshot(
         ticker=ticker,
@@ -30,7 +32,7 @@ def _snapshot(ticker="KXBTC15M-TEST", minutes_remaining=5.0, yes_ask=0.60, no_as
         no_bid=0.40,
         no_ask=no_ask,
         last_price=0.55,
-        volume=100,
+        volume=volume,
         volume_24h=1000,
         open_interest=50,
         floor_strike=50000.0,
@@ -257,6 +259,21 @@ def test_divergence_logged_when_market_confidently_disagrees_with_spot(monkeypat
     ticker, btc_price, floor_strike, yes_bid, spot_direction, market_direction = storage.divergence_events[0]
     assert spot_direction == "yes"
     assert market_direction == "no"
+
+
+def test_divergence_not_logged_when_market_illiquid(monkeypatch):
+    # Same confident-disagreement setup as the test above, but a fresh
+    # market with ~zero volume -- settings.divergence_min_volume should
+    # filter this out as an unpriced placeholder, not a real signal.
+    monkeypatch.setattr(trader_module, "predict", lambda *a, **k: None)
+    storage = FakeStorage()
+    settings = make_settings(divergence_min_volume=10.0)
+    price_feed = FakePriceFeed(price=51000.0)
+    t = Trader(FakeClient(), storage, settings, price_feed=price_feed, enable_trading=False)
+
+    t.on_snapshot(_snapshot(yes_bid=0.20, volume=0))
+
+    assert storage.divergence_events == []
 
 
 def test_divergence_not_logged_when_not_confident(monkeypatch):

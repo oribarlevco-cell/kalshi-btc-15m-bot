@@ -70,6 +70,8 @@ def build_live_tile(conn: sqlite3.Connection, settings: Settings) -> dict[str, A
         pred["floor_strike"] if pred else None,
         snap["yes_bid"],
         settings.divergence_confident_threshold,
+        volume=snap["volume"],
+        min_volume=settings.divergence_min_volume,
     )
     divergence_dict = (
         {

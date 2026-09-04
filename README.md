@@ -79,10 +79,16 @@ is a proposed trading strategy):
 - **Divergence**: fires when the market's `yes_bid` confidently leans one
   way (above `DIVERGENCE_CONFIDENT_THRESHOLD`, default 0.65, or below
   `1 - threshold`) while BTC's spot price sits on the *other* side of the
-  strike. Logged once per market the first time it's seen
-  (`divergence_events`); once the market settles, whether that divergence's
-  implied direction was actually correct gets scored. Shown live as an
-  amber banner on the dashboard.
+  strike, **and** the market has at least `DIVERGENCE_MIN_VOLUME` (default
+  10) contracts traded. That volume floor matters: a brand-new market's
+  `yes_bid` is often an unpriced placeholder (e.g. 0.01 with zero volume)
+  before real trading begins, not a confident-and-wrong market -- without
+  it, most "divergences" in early testing turned out to be exactly that
+  artifact (the true accuracy on genuinely-traded events held up, but the
+  sample was ~90% zero-liquidity noise). Logged once per market the first
+  time it's seen (`divergence_events`); once the market settles, whether
+  that divergence's implied direction was actually correct gets scored.
+  Shown live as an amber banner on the dashboard.
 - **15-min EMA/RSI trend**: `EMA9` vs `EMA21` crossover plus `RSI14`,
   computed from Coinbase's 15-min candles (`EMA_RSI_CANDLES_URL`) once per
   new market (not every tick). Classified bull/bear/neutral using the same
@@ -279,6 +285,7 @@ credentials (see [Safety](#safety)).
 | `MIN_SIGNAL_CONFIDENCE` | no (default `0.15`) | Only propose a trade when `abs(P(yes)-0.5)*2` is at least this |
 | `MOMENTUM_WINDOW_SECONDS` | no (default `300`) | Lookback window for the (currently unused-by-the-formula) momentum signal |
 | `DIVERGENCE_CONFIDENT_THRESHOLD` | no (default `0.65`) | How confident `yes_bid` must be (above this, or below `1-this`) to count as a divergence when it disagrees with spot vs. strike |
+| `DIVERGENCE_MIN_VOLUME` | no (default `10`) | Minimum contracts traded before a divergence counts -- filters out unpriced, zero-liquidity placeholder quotes at market open |
 | `EMA_RSI_CANDLES_URL` | no (default Coinbase BTC-USD 15-min candles) | Candle source for the logged-only EMA9/EMA21/RSI14 trend signal |
 | `TRADING_ENABLED` | no (default `false`) | Must be `true`, **in addition to** `KALSHI_ENV=demo` and the `--trade` flag, for any order to ever be proposed |
 | `MAX_ORDER_COST_DOLLARS` | no (default `5.0`) | Caps the size of each proposed paper order |

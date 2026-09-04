@@ -86,7 +86,12 @@ class Trader:
         samples exist for a real prediction."""
         btc_price = self._price_feed.latest_price()
         divergence = check_divergence(
-            btc_price, snapshot.floor_strike, snapshot.yes_bid, self._settings.divergence_confident_threshold
+            btc_price,
+            snapshot.floor_strike,
+            snapshot.yes_bid,
+            self._settings.divergence_confident_threshold,
+            volume=snapshot.volume,
+            min_volume=self._settings.divergence_min_volume,
         )
         if divergence.is_diverging:
             self._storage.record_divergence_event(

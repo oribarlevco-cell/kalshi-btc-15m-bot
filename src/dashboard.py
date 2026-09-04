@@ -53,7 +53,12 @@ def build_dashboard_data(settings: Settings) -> dict[str, Any]:
     btc_price = prediction.btc_price if prediction else price_feed.latest_price()
 
     divergence = check_divergence(
-        btc_price, snapshot.floor_strike, snapshot.yes_bid, settings.divergence_confident_threshold
+        btc_price,
+        snapshot.floor_strike,
+        snapshot.yes_bid,
+        settings.divergence_confident_threshold,
+        volume=snapshot.volume,
+        min_volume=settings.divergence_min_volume,
     )
     divergence_dict = (
         {

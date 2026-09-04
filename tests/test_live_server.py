@@ -153,6 +153,22 @@ def test_build_live_tile_divergence_and_trend(tmp_path):
     assert tile["trend_rsi14"] == 55.0
 
 
+def test_build_live_tile_divergence_filtered_when_illiquid(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    _seed_market_data(db_path)
+    storage = Storage(db_path)
+    storage._conn.execute("UPDATE snapshots SET yes_bid = 0.20, volume = 0 WHERE ticker = 'T1'")
+    storage._conn.commit()
+    storage.close()
+    settings = make_settings(db_path=db_path, divergence_min_volume=10.0)
+
+    conn = sqlite3.connect(db_path)
+    tile = build_live_tile(conn, settings)
+    conn.close()
+
+    assert tile["divergence"] is None
+
+
 def test_build_payload_shape(tmp_path):
     db_path = str(tmp_path / "test.db")
     _seed_market_data(db_path)

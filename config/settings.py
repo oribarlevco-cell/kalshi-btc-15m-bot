@@ -54,6 +54,7 @@ class Settings:
     analytics_publish_interval_minutes: float
 
     divergence_confident_threshold: float
+    divergence_min_volume: float
     ema_rsi_candles_url: str
 
     @property
@@ -115,5 +116,6 @@ def load_settings(env_file: str | None = None) -> Settings:
         analytics_publish_enabled=os.getenv("ANALYTICS_PUBLISH_ENABLED", "false").strip().lower() == "true",
         analytics_publish_interval_minutes=float(os.getenv("ANALYTICS_PUBLISH_INTERVAL_MINUTES", "10")),
         divergence_confident_threshold=float(os.getenv("DIVERGENCE_CONFIDENT_THRESHOLD", "0.65")),
+        divergence_min_volume=float(os.getenv("DIVERGENCE_MIN_VOLUME", "10")),
         ema_rsi_candles_url=os.getenv("EMA_RSI_CANDLES_URL", DEFAULT_EMA_RSI_CANDLES_URL),
     )
