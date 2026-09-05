@@ -1,6 +1,54 @@
 {
-  "generated_at": "2026-09-05T03:48:16.639827+00:00",
+  "generated_at": "2026-09-05T03:58:30.216810+00:00",
   "recent_settled": [
+    {
+      "ticker": "KXBTC15M-26SEP042200-00",
+      "result": "no",
+      "closed_at_utc": "2026-09-05T03:54:26.690947+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042215-15",
+      "result": "yes",
+      "closed_at_utc": "2026-09-05T03:54:26.689989+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042230-30",
+      "result": "no",
+      "closed_at_utc": "2026-09-05T03:54:26.688985+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042245-45",
+      "result": "yes",
+      "closed_at_utc": "2026-09-05T03:54:26.687770+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042300-00",
+      "result": "no",
+      "closed_at_utc": "2026-09-05T03:54:26.686598+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042315-15",
+      "result": "no",
+      "closed_at_utc": "2026-09-05T03:54:26.685372+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042330-30",
+      "result": "yes",
+      "closed_at_utc": "2026-09-05T03:54:26.683998+00:00",
+      "data_quality": "observed"
+    },
+    {
+      "ticker": "KXBTC15M-26SEP042345-45",
+      "result": "yes",
+      "closed_at_utc": "2026-09-05T03:54:26.681523+00:00",
+      "data_quality": "observed"
+    },
     {
       "ticker": "KXBTC15M-26SEP042100-00",
       "result": "no",
@@ -12,128 +60,80 @@
       "result": "yes",
       "closed_at_utc": "2026-09-05T02:54:11.520523+00:00",
       "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042130-30",
-      "result": "yes",
-      "closed_at_utc": "2026-09-05T02:54:11.519461+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042145-45",
-      "result": "no",
-      "closed_at_utc": "2026-09-05T02:54:11.518212+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042200-00",
-      "result": "no",
-      "closed_at_utc": "2026-09-05T02:54:11.516479+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042215-15",
-      "result": "yes",
-      "closed_at_utc": "2026-09-05T02:54:11.514515+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042230-30",
-      "result": "no",
-      "closed_at_utc": "2026-09-05T02:54:11.512134+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042245-45",
-      "result": "yes",
-      "closed_at_utc": "2026-09-05T02:54:11.509817+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042000-00",
-      "result": "no",
-      "closed_at_utc": "2026-09-05T01:53:59.858408+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP042015-15",
-      "result": "yes",
-      "closed_at_utc": "2026-09-05T01:53:59.857265+00:00",
-      "data_quality": "observed"
     }
   ],
   "backtests": [
     {
       "name": "model",
-      "n": 142,
-      "wins": 77,
-      "win_rate": 0.5422535211267606,
-      "ci_low": 0.4602737366434806,
-      "ci_high": 0.6220073134821353,
-      "avg_pnl": -0.3779295774647889,
+      "n": 146,
+      "wins": 81,
+      "win_rate": 0.5547945205479452,
+      "ci_low": 0.4738005631604948,
+      "ci_high": 0.6329788625797536,
+      "avg_pnl": -0.3512739726027399,
       "low_confidence": false
     },
     {
       "name": "favorite",
-      "n": 189,
+      "n": 193,
       "wins": 93,
-      "win_rate": 0.49206349206349204,
-      "ci_low": 0.42165939985229567,
-      "ci_high": 0.5627837908285533,
-      "avg_pnl": -0.4825396825396824,
+      "win_rate": 0.48186528497409326,
+      "ci_low": 0.41241407003029484,
+      "ci_high": 0.5520243413624187,
+      "avg_pnl": -0.49326424870466307,
       "low_confidence": false
     },
     {
       "name": "momentum",
-      "n": 131,
-      "wins": 69,
-      "win_rate": 0.5267175572519084,
-      "ci_low": 0.44167901974695567,
-      "ci_high": 0.6102337430799464,
-      "avg_pnl": -0.34699236641221387,
+      "n": 135,
+      "wins": 72,
+      "win_rate": 0.5333333333333333,
+      "ci_low": 0.4494210205701084,
+      "ci_high": 0.6154010500484959,
+      "avg_pnl": -0.33382222222222235,
       "low_confidence": false
     },
     {
       "name": "agreement",
-      "n": 103,
-      "wins": 58,
-      "win_rate": 0.5631067961165048,
-      "ci_low": 0.46675816953805177,
-      "ci_high": 0.6549172827202446,
-      "avg_pnl": -0.3534563106796117,
+      "n": 106,
+      "wins": 61,
+      "win_rate": 0.5754716981132075,
+      "ci_low": 0.4803591504335626,
+      "ci_high": 0.6653051516159342,
+      "avg_pnl": -0.3303396226415095,
       "low_confidence": false
     }
   ],
   "pattern_log": {
-    "total_settled": 211,
-    "up_count": 114,
-    "down_count": 97,
-    "observed_count": 177,
+    "total_settled": 215,
+    "up_count": 116,
+    "down_count": 99,
+    "observed_count": 181,
     "backfill_count": 34,
     "trend": {
       "name": "trend",
-      "n": 102,
-      "wins": 46,
-      "win_rate": 0.45098039215686275,
-      "ci_low": 0.35794458285356257,
-      "ci_high": 0.5475746080883734,
+      "n": 106,
+      "wins": 48,
+      "win_rate": 0.4528301886792453,
+      "ci_low": 0.3613756390040924,
+      "ci_high": 0.5475841722149721,
       "avg_pnl": 0.0,
       "low_confidence": false
     },
     "divergence": {
       "name": "divergence",
-      "n": 110,
-      "wins": 72,
-      "win_rate": 0.6545454545454545,
-      "ci_low": 0.5618231409752017,
-      "ci_high": 0.7368374540972498,
+      "n": 111,
+      "wins": 73,
+      "win_rate": 0.6576576576576577,
+      "ci_low": 0.5654402975469389,
+      "ci_high": 0.7393273127963514,
       "avg_pnl": 0.0,
       "low_confidence": false
     }
   },
   "calibration": {
     "initial": {
-      "n": 177,
+      "n": 181,
       "buckets": [
         {
           "lo": 0.0,
@@ -152,9 +152,9 @@
         {
           "lo": 0.4,
           "hi": 0.6000000000000001,
-          "count": 100,
-          "mean_predicted": 0.48778409793205585,
-          "actual_yes_rate": 0.56
+          "count": 104,
+          "mean_predicted": 0.4881590268965828,
+          "actual_yes_rate": 0.5576923076923077
         },
         {
           "lo": 0.6000000000000001,
@@ -171,18 +171,18 @@
           "actual_yes_rate": 1.0
         }
       ],
-      "brier_score": 0.23061811466234852,
-      "directional_accuracy": 0.5536723163841808
+      "brier_score": 0.2297692441002918,
+      "directional_accuracy": 0.56353591160221
     },
     "last": {
-      "n": 182,
+      "n": 186,
       "buckets": [
         {
           "lo": 0.0,
           "hi": 0.2,
-          "count": 75,
-          "mean_predicted": 0.0073695131348428065,
-          "actual_yes_rate": 0.013333333333333334
+          "count": 77,
+          "mean_predicted": 0.007178097209262566,
+          "actual_yes_rate": 0.012987012987012988
         },
         {
           "lo": 0.2,
@@ -208,13 +208,13 @@
         {
           "lo": 0.8,
           "hi": 1.0,
-          "count": 85,
-          "mean_predicted": 0.9818877877093799,
+          "count": 87,
+          "mean_predicted": 0.982304160405716,
           "actual_yes_rate": 1.0
         }
       ],
-      "brier_score": 0.03175490672622052,
-      "directional_accuracy": 0.967032967032967
+      "brier_score": 0.031072005506301802,
+      "directional_accuracy": 0.967741935483871
     }
   },
   "calibration_trend": []
