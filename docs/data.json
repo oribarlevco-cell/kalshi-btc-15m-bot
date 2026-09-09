@@ -1,25 +1,5 @@
 {
-  "generated_at": "2026-09-09T21:56:43.324645+00:00",
+  "generated_at": "2026-09-09T22:15:05.054453+00:00",
   "series_ticker": "KXBTC15M",
-  "ticker": "KXBTC15M-26SEP091800-00",
-  "event_ticker": "KXBTC15M-26SEP091800",
-  "status": "active",
-  "close_time": "2026-09-09T22:00:00+00:00",
-  "time_remaining_seconds": 196.408342,
-  "floor_strike": 78235.21,
-  "yes_bid": 0.01,
-  "yes_ask": 0.12,
-  "no_bid": 0.88,
-  "no_ask": 0.99,
-  "last_price": 0.12,
-  "volume": 216.24,
-  "open_interest": 115.28,
-  "btc_price": 78094.2,
-  "probability_yes": 0.0,
-  "confidence": 1.0,
-  "sample_count": 5,
-  "rationale": "BTC $78,094.20 vs strike $78,235.21 (delta -141.01), sigma/sqrt(s)=0.000000, time_left=196s -> P(yes)=0.0%",
-  "divergence": null,
-  "trend_state": "bear",
-  "trend_rsi14": 35.36450452417327
+  "error": "no_active_market"
 }
