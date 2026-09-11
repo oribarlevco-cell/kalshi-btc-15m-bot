@@ -82,14 +82,15 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1 / (1 + np.exp(-x))
 
 
-def fit_platt_scaling(raw_p: np.ndarray, outcome: np.ndarray, iterations: int = 2000, lr: float = 0.1) -> tuple[float, float]:
+def fit_platt_scaling(
+    raw_p: np.ndarray, outcome: np.ndarray, iterations: int = 2000, lr: float = 0.1
+) -> tuple[float, float]:
     """Fit calibrated_p = sigmoid(a * logit(raw_p) + b) by gradient descent
     on log-loss. a < 1 shrinks confident calls toward 0.5 (fixes
     overconfidence); a > 1 would sharpen underconfident calls."""
     x = _logit(raw_p)
     y = outcome.astype(float)
     a, b = 1.0, 0.0
-    n = len(x)
 
     for _ in range(iterations):
         z = a * x + b
@@ -227,15 +228,25 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--no-cache", action="store_true")
-    parser.add_argument("--fold-trades", type=int, default=750, help="Trades per out-of-sample evaluation fold (~1 week)")
-    parser.add_argument("--min-train-trades", type=int, default=1500, help="Minimum trades before the first fold is evaluated")
     parser.add_argument(
-        "--rolling-window-trades", type=int, default=None,
-        help="Train on only the trailing N trades instead of all prior history (tests recency vs. expanding-window fits)",
+        "--fold-trades", type=int, default=750, help="Trades per out-of-sample evaluation fold (~1 week)"
     )
     parser.add_argument(
-        "--method", choices=["platt", "cap"], default="platt",
-        help="platt: smooth log-odds compression (fit on train). cap: hard-clip probability into [--cap-lo, --cap-hi] (fixed, no fit).",
+        "--min-train-trades", type=int, default=1500, help="Minimum trades before the first fold is evaluated"
+    )
+    parser.add_argument(
+        "--rolling-window-trades",
+        type=int,
+        default=None,
+        help="Train on only the trailing N trades instead of all prior history "
+        "(tests recency vs. expanding-window fits)",
+    )
+    parser.add_argument(
+        "--method",
+        choices=["platt", "cap"],
+        default="platt",
+        help="platt: smooth log-odds compression (fit on train). "
+        "cap: hard-clip probability into [--cap-lo, --cap-hi] (fixed, no fit).",
     )
     parser.add_argument("--cap-lo", type=float, default=0.10, help="Lower probability bound for --method cap")
     parser.add_argument("--cap-hi", type=float, default=0.90, help="Upper probability bound for --method cap")
@@ -257,12 +268,25 @@ def main() -> None:
         print(f"Not enough trades ({len(trades)}) for even one walk-forward fold with these settings.")
         return
 
-    window_desc = f"trailing {args.rolling_window_trades} trades" if args.rolling_window_trades else "expanding (all prior history)"
-    print(f"Walk-forward [{args.method}]: {len(folds)} folds, ~{args.fold_trades} trades each, training window = {window_desc}\n")
+    window_desc = (
+        f"trailing {args.rolling_window_trades} trades"
+        if args.rolling_window_trades
+        else "expanding (all prior history)"
+    )
+    print(
+        f"Walk-forward [{args.method}]: {len(folds)} folds, ~{args.fold_trades} trades each, "
+        f"training window = {window_desc}\n"
+    )
 
-    print(f"{'fold':>4}  {'period (test)':<37}{'train n':>8}  {'fit':<18}  {'raw pnl':>9}  {'cal pnl':>9}  {'raw brier':>10}  {'cal brier':>10}")
+    print(
+        f"{'fold':>4}  {'period (test)':<37}{'train n':>8}  {'fit':<18}  "
+        f"{'raw pnl':>9}  {'cal pnl':>9}  {'raw brier':>10}  {'cal brier':>10}"
+    )
     for f in folds:
-        period = f"{f.test_trades[0].decision_time.strftime('%m-%d')} -> {f.test_trades[-1].decision_time.strftime('%m-%d')}"
+        period = (
+            f"{f.test_trades[0].decision_time.strftime('%m-%d')} -> "
+            f"{f.test_trades[-1].decision_time.strftime('%m-%d')}"
+        )
         raw_s, cal_s = fold_stats(f.test_trades), fold_stats(f.calibrated_test_trades)
         print(
             f"{f.index:>4}  {period:<37}{f.train_n:>8}  {f.label:<18}  "
@@ -273,8 +297,12 @@ def main() -> None:
     all_raw = [t for f in folds for t in f.test_trades]
     all_cal = [t for f in folds for t in f.calibrated_test_trades]
     raw_stats, cal_stats = fold_stats(all_raw), fold_stats(all_cal)
-    folds_pnl_improved = sum(1 for f in folds if fold_stats(f.calibrated_test_trades).total_pnl > fold_stats(f.test_trades).total_pnl)
-    folds_brier_improved = sum(1 for f in folds if fold_stats(f.calibrated_test_trades).brier < fold_stats(f.test_trades).brier)
+    folds_pnl_improved = sum(
+        1 for f in folds if fold_stats(f.calibrated_test_trades).total_pnl > fold_stats(f.test_trades).total_pnl
+    )
+    folds_brier_improved = sum(
+        1 for f in folds if fold_stats(f.calibrated_test_trades).brier < fold_stats(f.test_trades).brier
+    )
 
     print()
     print("=" * 65)
@@ -283,7 +311,11 @@ def main() -> None:
     print(f"{'metric':<16}{'raw':>15}{'calibrated':>18}")
     print(f"{'n trades':<16}{raw_stats.n:>15}{cal_stats.n:>18}")
     print(f"{'win rate':<16}{raw_stats.win_rate:>14.1%}{cal_stats.win_rate:>17.1%}")
-    print(f"{'total P&L':<16}{'$' + format(raw_stats.total_pnl, '.2f'):>15}{'$' + format(cal_stats.total_pnl, '.2f'):>18}")
+    print(
+        f"{'total P&L':<16}"
+        f"{'$' + format(raw_stats.total_pnl, '.2f'):>15}"
+        f"{'$' + format(cal_stats.total_pnl, '.2f'):>18}"
+    )
     print(f"{'brier score':<16}{raw_stats.brier:>15.4f}{cal_stats.brier:>18.4f}")
     print(f"\nFolds where calibration improved P&L:    {folds_pnl_improved}/{len(folds)}")
     print(f"Folds where calibration improved Brier:  {folds_brier_improved}/{len(folds)}")
@@ -299,7 +331,12 @@ def main() -> None:
     pnl_delta = cal_stats.total_pnl - raw_stats.total_pnl
     brier_delta = cal_stats.brier - raw_stats.brier
     consistent = folds_brier_improved >= len(folds) * 0.6
-    verdict = "DURABLE FIX" if (brier_delta < 0 and consistent) else ("MIXED / REGIME-DEPENDENT" if pnl_delta > 0 or brier_delta < 0 else "NO IMPROVEMENT")
+    if brier_delta < 0 and consistent:
+        verdict = "DURABLE FIX"
+    elif pnl_delta > 0 or brier_delta < 0:
+        verdict = "MIXED / REGIME-DEPENDENT"
+    else:
+        verdict = "NO IMPROVEMENT"
     print(
         f"Verdict: {verdict}  (aggregate P&L {pnl_delta:+.2f}, aggregate Brier {brier_delta:+.4f}, "
         f"Brier improved in {folds_brier_improved}/{len(folds)} individual folds)"
@@ -310,15 +347,47 @@ def main() -> None:
     out_path = RESULTS_DIR / f"calibration_fix_{stamp}.csv"
     with out_path.open("w", newline="") as f_out:
         writer = csv.writer(f_out)
-        writer.writerow(["fold", "test_period_start", "test_period_end", "train_n", "fit", "raw_pnl", "cal_pnl", "raw_brier", "cal_brier"])
+        writer.writerow(
+            [
+                "fold",
+                "test_period_start",
+                "test_period_end",
+                "train_n",
+                "fit",
+                "raw_pnl",
+                "cal_pnl",
+                "raw_brier",
+                "cal_brier",
+            ]
+        )
         for f in folds:
             raw_s, cal_s = fold_stats(f.test_trades), fold_stats(f.calibrated_test_trades)
-            writer.writerow([
-                f.index, f.test_trades[0].decision_time.isoformat(), f.test_trades[-1].decision_time.isoformat(),
-                f.train_n, f.label, round(raw_s.total_pnl, 2), round(cal_s.total_pnl, 2),
-                round(raw_s.brier, 4), round(cal_s.brier, 4),
-            ])
-        writer.writerow(["aggregate", "", "", "", "", round(raw_stats.total_pnl, 2), round(cal_stats.total_pnl, 2), round(raw_stats.brier, 4), round(cal_stats.brier, 4)])
+            writer.writerow(
+                [
+                    f.index,
+                    f.test_trades[0].decision_time.isoformat(),
+                    f.test_trades[-1].decision_time.isoformat(),
+                    f.train_n,
+                    f.label,
+                    round(raw_s.total_pnl, 2),
+                    round(cal_s.total_pnl, 2),
+                    round(raw_s.brier, 4),
+                    round(cal_s.brier, 4),
+                ]
+            )
+        writer.writerow(
+            [
+                "aggregate",
+                "",
+                "",
+                "",
+                "",
+                round(raw_stats.total_pnl, 2),
+                round(cal_stats.total_pnl, 2),
+                round(raw_stats.brier, 4),
+                round(cal_stats.brier, 4),
+            ]
+        )
     print(f"\nSaved: {out_path.relative_to(Path(__file__).resolve().parent.parent)}")
 
 
