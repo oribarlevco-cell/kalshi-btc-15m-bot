@@ -6,6 +6,7 @@ import pytest
 
 from src.backtest import (
     MarketOutcome,
+    book_imbalance_direction,
     direction_for_strategy,
     entry_price_for_direction,
     fetch_market_outcomes,
@@ -156,23 +157,34 @@ def _seed_db(tmp_path):
     conn = sqlite3.connect(db_path)
 
     conn.execute(
-        "INSERT INTO market_lifecycle (ticker, actual_result, initial_probability_yes, opened_at_utc) "
-        "VALUES (?, ?, ?, ?)",
-        ("T1", "yes", 0.7, "2026-01-01T00:00:00+00:00"),
+        "INSERT INTO market_lifecycle (ticker, actual_result, initial_probability_yes, opened_at_utc, close_time_utc) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("T1", "yes", 0.7, "2026-01-01T00:00:00+00:00", "2026-01-01T00:15:00+00:00"),
     )
-    snapshot_cols = "ticker, pulled_at_utc, close_time_utc, yes_bid, yes_ask, no_bid, no_ask"
+    snapshot_cols = "ticker, pulled_at_utc, close_time_utc, yes_bid, yes_ask, no_bid, no_ask, volume"
     conn.execute(
-        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("T1", "2026-01-01T00:00:00+00:00", "2026-01-01T00:15:00+00:00", 0.55, 0.60, 0.38, 0.45),
+        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("T1", "2026-01-01T00:00:00+00:00", "2026-01-01T00:15:00+00:00", 0.55, 0.60, 0.38, 0.45, 42.0),
     )
     conn.execute(
-        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO snapshots ({snapshot_cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         # later -- should NOT be picked as opening
-        ("T1", "2026-01-01T00:00:20+00:00", "2026-01-01T00:15:00+00:00", 0.60, 0.65, 0.33, 0.40),
+        ("T1", "2026-01-01T00:00:20+00:00", "2026-01-01T00:15:00+00:00", 0.60, 0.65, 0.33, 0.40, 99.0),
     )
     conn.execute(
         "INSERT INTO predictions (ticker, computed_at_utc, momentum_pct) VALUES (?, ?, ?)",
         ("T1", "2026-01-01T00:00:00+00:00", 0.02),
+    )
+    conn.execute(
+        "INSERT INTO orderbook_snapshots (ticker, pulled_at_utc, yes_depth_total, no_depth_total) "
+        "VALUES (?, ?, ?, ?)",
+        ("T1", "2026-01-01T00:00:00+00:00", 80.0, 20.0),
+    )
+    conn.execute(
+        "INSERT INTO orderbook_snapshots (ticker, pulled_at_utc, yes_depth_total, no_depth_total) "
+        "VALUES (?, ?, ?, ?)",
+        # later -- should NOT be picked as opening
+        ("T1", "2026-01-01T00:00:20+00:00", 10.0, 10.0),
     )
     conn.commit()
     conn.close()
@@ -191,6 +203,39 @@ def test_fetch_market_outcomes_uses_earliest_snapshot_and_prediction(tmp_path):
     assert outcome.opening_yes_ask == 0.60
     assert outcome.opening_momentum_pct == 0.02
     assert outcome.observed is True
+
+
+def test_fetch_market_outcomes_includes_close_time_volume_and_orderbook_depth(tmp_path):
+    db_path = _seed_db(tmp_path)
+
+    outcome = fetch_market_outcomes(db_path)[0]
+
+    assert outcome.close_time_utc == "2026-01-01T00:15:00+00:00"
+    assert outcome.opening_volume == 42.0  # the earlier snapshot, not the later one
+    assert outcome.opening_yes_depth_total == 80.0
+    assert outcome.opening_no_depth_total == 20.0
+
+
+def test_book_imbalance_direction_yes_when_more_yes_depth():
+    outcome = _outcome()
+    outcome = MarketOutcome(**{**outcome.__dict__, "opening_yes_depth_total": 80.0, "opening_no_depth_total": 20.0})
+    assert book_imbalance_direction(outcome) == "yes"
+
+
+def test_book_imbalance_direction_no_when_more_no_depth():
+    outcome = _outcome()
+    outcome = MarketOutcome(**{**outcome.__dict__, "opening_yes_depth_total": 20.0, "opening_no_depth_total": 80.0})
+    assert book_imbalance_direction(outcome) == "no"
+
+
+def test_book_imbalance_direction_none_when_missing_or_zero_total_depth():
+    missing = _outcome()
+    assert book_imbalance_direction(missing) is None  # defaults are None
+
+    zero_total = MarketOutcome(
+        **{**_outcome().__dict__, "opening_yes_depth_total": 0.0, "opening_no_depth_total": 0.0}
+    )
+    assert book_imbalance_direction(zero_total) is None
 
 
 def test_fetch_market_outcomes_excludes_unsettled(tmp_path):

@@ -40,6 +40,10 @@ class MarketOutcome:
     trend_state: str | None = None  # 'bull' | 'bear' | 'neutral' | None
     divergence_direction: Direction | None = None  # spot's direction, if a divergence event fired
     observed: bool = True  # False if this market was only ever backfilled (never seen live)
+    close_time_utc: str | None = None
+    opening_volume: float | None = None
+    opening_yes_depth_total: float | None = None
+    opening_no_depth_total: float | None = None
 
 
 def direction_for_strategy(strategy: StrategyName, outcome: MarketOutcome) -> Direction | None:
@@ -89,6 +93,25 @@ def divergence_direction(outcome: MarketOutcome) -> Direction | None:
     return outcome.divergence_direction
 
 
+def book_imbalance_direction(outcome: MarketOutcome) -> Direction | None:
+    """Tracked-only signal -- a standard order-flow-imbalance indicator from
+    the opening orderbook snapshot. Never fed into predict(); first-ever
+    consumer of the previously write-only orderbook_snapshots table."""
+    yes_depth = outcome.opening_yes_depth_total
+    no_depth = outcome.opening_no_depth_total
+    if yes_depth is None or no_depth is None:
+        return None
+    total = yes_depth + no_depth
+    if total == 0:
+        return None
+    imbalance = (yes_depth - no_depth) / total
+    if imbalance > 0:
+        return "yes"
+    if imbalance < 0:
+        return "no"
+    return None
+
+
 def entry_price_for_direction(outcome: MarketOutcome, direction: Direction) -> float | None:
     price = outcome.opening_yes_ask if direction == "yes" else outcome.opening_no_ask
     return price if price and price > 0 else None
@@ -131,7 +154,13 @@ def fetch_market_outcomes(db_path: str) -> list[MarketOutcome]:
                 (SELECT momentum_pct FROM predictions WHERE ticker = m.ticker ORDER BY computed_at_utc ASC LIMIT 1),
                 m.trend_state,
                 d.spot_direction,
-                CASE WHEN m.opened_at_utc IS NOT NULL THEN 1 ELSE 0 END
+                CASE WHEN m.opened_at_utc IS NOT NULL THEN 1 ELSE 0 END,
+                m.close_time_utc,
+                (SELECT volume FROM snapshots WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1),
+                (SELECT yes_depth_total FROM orderbook_snapshots
+                    WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1),
+                (SELECT no_depth_total FROM orderbook_snapshots
+                    WHERE ticker = m.ticker ORDER BY pulled_at_utc ASC LIMIT 1)
             FROM market_lifecycle m
             LEFT JOIN divergence_events d ON d.ticker = m.ticker
             WHERE m.actual_result IS NOT NULL
@@ -153,6 +182,10 @@ def fetch_market_outcomes(db_path: str) -> list[MarketOutcome]:
             trend_state=r[8],
             divergence_direction=r[9],
             observed=bool(r[10]),
+            close_time_utc=r[11],
+            opening_volume=r[12],
+            opening_yes_depth_total=r[13],
+            opening_no_depth_total=r[14],
         )
         for r in rows
     ]

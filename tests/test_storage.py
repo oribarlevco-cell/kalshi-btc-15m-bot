@@ -477,3 +477,58 @@ def test_trend_state_for(tmp_path):
     assert storage.trend_state_for("T1") == ("bear", 40.0)
     assert storage.trend_state_for("UNKNOWN") is None
     storage.close()
+
+
+def test_insert_signal_research_run_and_finding_round_trip(tmp_path):
+    storage = Storage(str(tmp_path / "test.db"))
+
+    run_id = storage.insert_signal_research_run(
+        {
+            "run_at_utc": "2026-09-11T00:00:00+00:00",
+            "total_outcomes_n": 500,
+            "history_span_days": 9.5,
+            "min_train_days": 4,
+            "fold_size_days": 1,
+            "notes": None,
+        }
+    )
+    assert isinstance(run_id, int)
+
+    storage.insert_signal_research_finding(
+        {
+            "run_id": run_id,
+            "signal_name": "divergence",
+            "verdict": "PASS",
+            "n": 60,
+            "wins": 40,
+            "win_rate": 40 / 60,
+            "ci_low": 0.55,
+            "ci_high": 0.75,
+            "brier_signal": 0.20,
+            "brier_baseline": 0.23,
+            "brier_delta": 0.03,
+            "brier_n": 55,
+            "fold_count": 6,
+            "eligible_fold_count": 5,
+            "folds_consistent": 4,
+            "fold_consistency_rate": 0.8,
+            "liquidity_check_passed": True,
+            "low_liquidity_n": 10,
+            "low_liquidity_win_rate": 0.6,
+            "high_liquidity_n": 50,
+            "high_liquidity_win_rate": 0.58,
+            "notes": "clears every gate",
+        }
+    )
+
+    run_row = storage._conn.execute(
+        "SELECT total_outcomes_n, min_train_days FROM signal_research_runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    assert run_row == (500, 4)
+
+    finding_row = storage._conn.execute(
+        "SELECT signal_name, verdict, n, liquidity_check_passed FROM signal_research_findings WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    assert finding_row == ("divergence", "PASS", 60, 1)
+    storage.close()

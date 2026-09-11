@@ -134,6 +134,43 @@ CREATE TABLE IF NOT EXISTS divergence_events (
     finalized_at_utc TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_divergence_result ON divergence_events(actual_result);
+
+CREATE TABLE IF NOT EXISTS signal_research_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at_utc TEXT NOT NULL,
+    total_outcomes_n INTEGER NOT NULL,
+    history_span_days REAL,
+    min_train_days INTEGER NOT NULL,
+    fold_size_days INTEGER NOT NULL,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS signal_research_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES signal_research_runs(id),
+    signal_name TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    n INTEGER NOT NULL,
+    wins INTEGER NOT NULL,
+    win_rate REAL NOT NULL,
+    ci_low REAL NOT NULL,
+    ci_high REAL NOT NULL,
+    brier_signal REAL,
+    brier_baseline REAL,
+    brier_delta REAL,
+    brier_n INTEGER,
+    fold_count INTEGER NOT NULL,
+    eligible_fold_count INTEGER NOT NULL,
+    folds_consistent INTEGER NOT NULL,
+    fold_consistency_rate REAL,
+    liquidity_check_passed INTEGER,
+    low_liquidity_n INTEGER,
+    low_liquidity_win_rate REAL,
+    high_liquidity_n INTEGER,
+    high_liquidity_win_rate REAL,
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_signal_research_findings_run ON signal_research_findings(run_id);
 """
 
 
@@ -519,6 +556,59 @@ class Storage:
             (which, limit),
         )
         return cursor.fetchall()
+
+    def insert_signal_research_run(self, run: dict) -> int:
+        cursor = self._conn.execute(
+            "INSERT INTO signal_research_runs "
+            "(run_at_utc, total_outcomes_n, history_span_days, min_train_days, fold_size_days, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                run["run_at_utc"],
+                run["total_outcomes_n"],
+                run.get("history_span_days"),
+                run["min_train_days"],
+                run["fold_size_days"],
+                run.get("notes"),
+            ),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def insert_signal_research_finding(self, finding: dict) -> None:
+        self._conn.execute(
+            "INSERT INTO signal_research_findings ("
+            "run_id, signal_name, verdict, n, wins, win_rate, ci_low, ci_high, "
+            "brier_signal, brier_baseline, brier_delta, brier_n, "
+            "fold_count, eligible_fold_count, folds_consistent, fold_consistency_rate, "
+            "liquidity_check_passed, low_liquidity_n, low_liquidity_win_rate, "
+            "high_liquidity_n, high_liquidity_win_rate, notes"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                finding["run_id"],
+                finding["signal_name"],
+                finding["verdict"],
+                finding["n"],
+                finding["wins"],
+                finding["win_rate"],
+                finding["ci_low"],
+                finding["ci_high"],
+                finding.get("brier_signal"),
+                finding.get("brier_baseline"),
+                finding.get("brier_delta"),
+                finding.get("brier_n"),
+                finding["fold_count"],
+                finding["eligible_fold_count"],
+                finding["folds_consistent"],
+                finding.get("fold_consistency_rate"),
+                finding.get("liquidity_check_passed"),
+                finding.get("low_liquidity_n"),
+                finding.get("low_liquidity_win_rate"),
+                finding.get("high_liquidity_n"),
+                finding.get("high_liquidity_win_rate"),
+                finding.get("notes"),
+            ),
+        )
+        self._conn.commit()
 
     def recent_snapshots(self, ticker: str, limit: int = 50) -> list[sqlite3.Row]:
         self._conn.row_factory = sqlite3.Row

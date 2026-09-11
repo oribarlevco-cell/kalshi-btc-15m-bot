@@ -45,6 +45,8 @@ def make_settings(**overrides) -> Settings:
         divergence_confident_threshold=0.65,
         divergence_min_volume=0.0,
         ema_rsi_candles_url="https://example.invalid/candles",
+        signal_research_enabled=False,
+        signal_research_interval_hours=168,
     )
     defaults.update(overrides)
     return Settings(**defaults)

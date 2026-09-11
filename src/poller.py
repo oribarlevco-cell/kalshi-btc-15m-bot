@@ -10,6 +10,7 @@ from src.backup import backup_database
 from src.kalshi_client import KalshiClient
 from src.markets import MarketSnapshot, discover_active_market, get_settled_history, get_snapshot
 from src.publish_analytics import publish_once
+from src.signal_research import run_signal_research_once
 from src.storage import Storage
 from src.summary import log_summary
 
@@ -73,8 +74,10 @@ def run_forever(
     last_backfill = 0.0
     last_backup = 0.0
     last_analytics_publish = 0.0
+    last_signal_research = 0.0
     backup_interval_seconds = settings.backup_interval_hours * 3600
     analytics_publish_interval_seconds = settings.analytics_publish_interval_minutes * 60
+    signal_research_interval_seconds = settings.signal_research_interval_hours * 3600
     while True:
         try:
             run_once(client, storage, settings, on_snapshot=on_snapshot)
@@ -102,5 +105,12 @@ def run_forever(
             except Exception:
                 logger.exception("Publishing dashboard analytics failed; continuing")
             last_analytics_publish = now
+
+        if settings.signal_research_enabled and now - last_signal_research > signal_research_interval_seconds:
+            try:
+                run_signal_research_once(settings)
+            except Exception:
+                logger.exception("Signal research loop failed; continuing")
+            last_signal_research = now
 
         time.sleep(settings.poll_interval_seconds)

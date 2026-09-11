@@ -57,6 +57,9 @@ class Settings:
     divergence_min_volume: float
     ema_rsi_candles_url: str
 
+    signal_research_enabled: bool
+    signal_research_interval_hours: float
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.api_key_id and self.private_key_path)
@@ -118,4 +121,6 @@ def load_settings(env_file: str | None = None) -> Settings:
         divergence_confident_threshold=float(os.getenv("DIVERGENCE_CONFIDENT_THRESHOLD", "0.65")),
         divergence_min_volume=float(os.getenv("DIVERGENCE_MIN_VOLUME", "10")),
         ema_rsi_candles_url=os.getenv("EMA_RSI_CANDLES_URL", DEFAULT_EMA_RSI_CANDLES_URL),
+        signal_research_enabled=os.getenv("SIGNAL_RESEARCH_ENABLED", "false").strip().lower() == "true",
+        signal_research_interval_hours=float(os.getenv("SIGNAL_RESEARCH_INTERVAL_HOURS", "168")),
     )

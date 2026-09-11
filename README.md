@@ -59,6 +59,10 @@ order — see [Safety](#safety) below.
 - `src/multi_trader.py` — automated paper trading for momentum/favorite/
   agreement, no per-trade confirmation (see
   [Automated multi-strategy paper trading](#automated-multi-strategy-paper-trading)).
+- `src/signal_research.py` — weekly walk-forward re-test of every logged
+  signal against settled history, with liquidity/consistency guardrails;
+  proposal-only, never changes live trading behavior (see
+  [Weekly signal research loop](#weekly-signal-research-loop)).
 
 ## Evaluating the model
 
@@ -186,6 +190,56 @@ into the live model would be a separate, deliberate change to
 python3 backtesting/calibration_fix.py                                   # walk-forward Platt scaling
 python3 backtesting/calibration_fix.py --method cap --cap-lo 0.1 --cap-hi 0.9
 ```
+
+## Weekly signal research loop
+
+`src/signal_research.py` re-tests every logged signal — the 4 tradeable
+strategies (`model`/`favorite`/`momentum`/`agreement`) plus the 3
+logged-only ones (`trend`, `divergence`, `book_imbalance` — a simple
+order-flow-imbalance read from the previously-unused `orderbook_snapshots`
+table) — against the live bot's own settled history, on a schedule, with
+the same rigor that caught the divergence signal's liquidity artifact
+(see [Evaluating the model](#evaluating-the-model)) rather than only
+checking ad hoc:
+
+- **Walk-forward, not whole-history**: sequential, chronological,
+  expanding-window folds by calendar day (`build_folds`) — each fold is
+  scored using only signal behavior fit on strictly-earlier data, never the
+  fold's own future. A signal's headline win rate, 95% CI, and a Brier-score
+  comparison against the live model's own `initial_probability_yes` (on the
+  identical out-of-sample rows) are all computed this way.
+- **Guardrails, generalized from the real divergence bug**: a liquidity
+  check splits outcomes by opening volume (reusing `DIVERGENCE_MIN_VOLUME`,
+  the exact threshold that bug was fixed with) and fails a signal whose edge
+  only shows up in the thin bucket; a fold-consistency check (reused from
+  `backtesting/calibration_fix.py`'s walk-forward precedent) requires the
+  Brier improvement to hold in most out-of-sample periods, not just one.
+- **Three verdicts, not two**: `PASS` (clears every gate — n≥50, 95% CI
+  lower bound ≥55% matching `multi_trader`'s own tier-2 bar, ≥3 eligible
+  folds, ≥60% fold consistency, liquidity check clean, Brier actually
+  improved), `FAIL` (explicit evidence against — CI doesn't clear a
+  coinflip, liquidity artifact detected, or the edge flips sign across most
+  folds), or `INCONCLUSIVE` (not enough data/folds yet — the honest default
+  for a signal that hasn't failed but hasn't cleared the bar either).
+- **Proposal-only, always**: findings are persisted to `signal_research_runs`/
+  `signal_research_findings` (a durable, queryable research history — what
+  was tested, when, and why it passed or failed) and nothing more. No code
+  path reads a `PASS` back into `src/predictor.py`, `src/trader.py`'s
+  trading gates, or `src/multi_trader.py`'s tiers — promoting a signal into
+  the live model is always a separate, later, explicitly human-approved
+  change.
+
+```bash
+python -m src.signal_research             # run once against your local DB
+python -m src.signal_research --report     # print the latest run's findings
+python -m src.signal_research --report --run-id 3   # print a specific past run
+```
+
+Off by default (`SIGNAL_RESEARCH_ENABLED=false`); set it to `true` and
+`--predict`/`--trade`'s `poller.run_forever` picks it up on
+`SIGNAL_RESEARCH_INTERVAL_HOURS` (default `168`, weekly), the same
+guarded-interval pattern as the analytics publish and backup jobs — one
+job's failure never blocks the others or the poll loop.
 
 ## Backups
 
@@ -375,6 +429,8 @@ credentials (see [Safety](#safety)).
 | `STRATEGY_TIER2_MIN_N` / `STRATEGY_TIER2_MIN_CI_LOWER` | no (default `50` / `0.55`) | Tier-2 stake threshold |
 | `STRATEGY_TIER1_MULTIPLIER` / `STRATEGY_TIER2_MULTIPLIER` | no (default `2` / `4`) | Stake multipliers at each tier |
 | `MULTI_STRATEGY_MAX_CONCURRENT_POSITIONS` | no (default `5`) | Per-strategy cap on simultaneous open positions |
+| `SIGNAL_RESEARCH_ENABLED` | no (default `false`) | Weekly signal research loop, see [Weekly signal research loop](#weekly-signal-research-loop) -- proposal-only, never changes trading behavior |
+| `SIGNAL_RESEARCH_INTERVAL_HOURS` | no (default `168`) | How often `run_forever` re-runs it when enabled |
 
 To create an API key/RSA keypair (needed for `--trade`, using your Kalshi
 **demo** account), see
