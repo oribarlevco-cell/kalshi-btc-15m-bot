@@ -1,6 +1,12 @@
 {
-  "generated_at": "2026-09-17T08:44:27.558448+00:00",
+  "generated_at": "2026-09-17T08:54:32.227997+00:00",
   "recent_settled": [
+    {
+      "ticker": "KXBTC15M-26SEP170245-45",
+      "result": "yes",
+      "closed_at_utc": "2026-09-17T08:44:49.478367+00:00",
+      "data_quality": "observed"
+    },
     {
       "ticker": "KXBTC15M-26SEP170145-45",
       "result": "no",
@@ -23,12 +29,6 @@
       "ticker": "KXBTC15M-26SEP170230-30",
       "result": "no",
       "closed_at_utc": "2026-09-17T07:44:29.888172+00:00",
-      "data_quality": "observed"
-    },
-    {
-      "ticker": "KXBTC15M-26SEP170245-45",
-      "result": "yes",
-      "closed_at_utc": "2026-09-17T07:44:29.883734+00:00",
       "data_quality": "observed"
     },
     {
